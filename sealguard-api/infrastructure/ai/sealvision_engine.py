@@ -2,19 +2,18 @@ from __future__ import annotations
 
 import os
 import tempfile
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from app.schemas.detect import DetectResponse, DetectionItem
+from domain.detection.entities import Detection, DetectionResult
 
 # Prevent ultralytics from auto-installing dependencies at runtime.
 os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 
-class SealVisionService:
+class SealVisionEngine:
     def __init__(
         self,
         bundle_dir: Path,
@@ -71,7 +70,7 @@ class SealVisionService:
         imgsz: int | None = None,
         conf: float | None = None,
         device: str | None = None,
-    ) -> DetectResponse:
+    ) -> DetectionResult:
         suffix = Path(file_name).suffix or ".jpg"
 
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -96,7 +95,7 @@ class SealVisionService:
         first_result = results[0]
         image_height, image_width = first_result.orig_shape
 
-        detections: list[DetectionItem] = []
+        detections: list[Detection] = []
         boxes = getattr(first_result, "boxes", None)
 
         if boxes is not None:
@@ -105,34 +104,20 @@ class SealVisionService:
                 conf_score = float(box.conf.item())
                 x1, y1, x2, y2 = [float(v) for v in box.xyxy[0].tolist()]
                 detections.append(
-                    DetectionItem(
+                    Detection(
                         id=idx,
-                        type=self.class_map.get(cls_id, str(cls_id)),
+                        label=self.class_map.get(cls_id, str(cls_id)),
                         confidence=round(conf_score, 4),
-                        bbox=[round(x1, 2), round(y1, 2), round(x2 - x1, 2), round(y2 - y1, 2)],
+                        bbox=(round(x1, 2), round(y1, 2), round(x2 - x1, 2), round(y2 - y1, 2)),
                     )
                 )
 
         detections.sort(key=lambda d: d.confidence, reverse=True)
 
-        return DetectResponse(
+        return DetectionResult(
             file_name=file_name,
             image_width=image_width,
             image_height=image_height,
             model_name=self.weights_path.name,
             detections=detections,
         )
-
-
-@lru_cache(maxsize=1)
-def get_sealvision_service() -> SealVisionService:
-    api_root = Path(__file__).resolve().parents[2]
-    default_bundle_dir = api_root.parent / "sealguard-ai" / "sealvision_model_bundle_20260408"
-    configured_dir = Path(os.getenv("SEALVISION_BUNDLE_DIR", str(default_bundle_dir)))
-
-    return SealVisionService(
-        bundle_dir=configured_dir,
-        default_imgsz=int(os.getenv("SEALVISION_IMG_SIZE", "960")),
-        default_conf=float(os.getenv("SEALVISION_CONF", "0.25")),
-        default_device=os.getenv("SEALVISION_DEVICE", "cpu"),
-    )

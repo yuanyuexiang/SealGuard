@@ -1,0 +1,27 @@
+services:
+  sealguard-api:
+    container_name: sealguard-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: yuanyuexiang/sealguard-api:v1
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=development
+      - DEBUG=true
+    networks:
+      - matrix-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sealguard-api.rule=Host(`localhost`)" # 请替换为真实域名
+      - "traefik.http.routers.sealguard-api.entrypoints=web"
+      - "traefik.http.routers.sealguard-api.service=sealguard-api"
+      - "traefik.http.services.sealguard-api.loadbalancer.server.port=8000"
+
+networks:
+  matrix-network:
+    external: true

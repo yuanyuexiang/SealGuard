@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
 
-class DetectionItem(BaseModel):
+class DetectionItemDTO(BaseModel):
     id: int = Field(description="Detection index in current image")
     type: str = Field(description="Detected class label, e.g. signature/stamp")
     confidence: float = Field(ge=0.0, le=1.0)
@@ -12,9 +12,9 @@ class DetectionItem(BaseModel):
     )
 
 
-class DetectResponse(BaseModel):
+class DetectResponseDTO(BaseModel):
     file_name: str
     image_width: int
     image_height: int
     model_name: str
-    detections: list[DetectionItem]
+    detections: list[DetectionItemDTO]

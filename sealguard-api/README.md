@@ -7,11 +7,48 @@ Backend API service for SealGuard.
 - SQLAlchemy
 - Pydantic
 
-## Run
+## Run (uvicorn)
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+uv sync --python 3.12
+uvicorn main:app --reload
 ```
+
+Production example:
+
+```bash
+uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+```
+
+## DDD structure (no app directory)
+
+```text
+sealguard-api/
+├─ main.py
+├─ interfaces/      # FastAPI controllers and DTO
+├─ application/     # Use cases (workflow orchestration)
+├─ domain/          # Entities, value objects, ports
+├─ infrastructure/  # DB/AI adapters and external implementations
+├─ bootstrap/       # Config and dependency wiring
+├─ shared/          # Shared utilities
+├─ .env
+├─ pyproject.toml
+└─ uv.lock
+```
+
+## PostgreSQL backend config
+
+The backend reads DB configuration from `.env` automatically.
+
+Configured value example:
+
+```env
+DATABASE_URL=postgresql+psycopg2://postgres:123456@localhost:5432/sealguard
+```
+
+Modules:
+
+- `bootstrap/config.py`: load and build database settings
+- `infrastructure/db/session.py`: create SQLAlchemy engine and SessionLocal
 
 ## SealVision detection microservice
 

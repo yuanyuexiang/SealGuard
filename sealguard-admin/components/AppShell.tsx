@@ -74,7 +74,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <BrandMark compact />
           </div>
           <Typography.Title level={4} className="page-title">
-            SealGuard 管理端
+            送货单智能核验系统
           </Typography.Title>
         </Header>
         <Content className="app-content">{children}</Content>
