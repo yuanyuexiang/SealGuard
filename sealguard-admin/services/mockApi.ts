@@ -1,6 +1,5 @@
 import type {
   Customer,
-  Detection,
   ReviewRecord,
   ReviewResult,
   TaskResult,
@@ -8,176 +7,155 @@ import type {
   UploadTask,
 } from "@/types/domain";
 
-let customerId = 3;
-let templateId = 3;
-let detectId = 3;
-let reviewId = 1;
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/backend";
 
-const nowIso = () => new Date().toISOString();
+type ApiErrorPayload = {
+  detail?: string;
+};
 
-const delay = (ms = 400) => new Promise((resolve) => setTimeout(resolve, ms));
+function normalizeImageUrl(url: string): string {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${API_BASE}${url.startsWith("/") ? "" : "/"}${url}`;
+}
 
-const customers: Customer[] = [
-  { id: 1, name: "可口可乐华南配送中心" },
-  { id: 2, name: "可口可乐华东供应链" },
-];
-
-const templates: Template[] = [
-  {
-    id: 1,
-    customer_id: 1,
-    type: "signature",
-    image_url: "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?q=80&w=1200&auto=format&fit=crop",
-    created_at: nowIso(),
-  },
-  {
-    id: 2,
-    customer_id: 1,
-    type: "stamp",
-    image_url: "https://images.unsplash.com/photo-1455390582262-044cdead277a?q=80&w=1200&auto=format&fit=crop",
-    created_at: nowIso(),
-  },
-];
-
-const tasks: UploadTask[] = [];
-const detectionsByTask = new Map<string, Detection[]>();
-const reviews: ReviewRecord[] = [];
-
-function buildMockDetections(taskId: string): Detection[] {
-  const base: Detection[] = [
-    {
-      id: detectId++,
-      task_id: taskId,
-      type: "signature",
-      bbox: [120, 260, 180, 80],
-      score: 0.91,
-      result: "true",
-      matched_template_url:
-        "https://images.unsplash.com/photo-1455390582262-044cdead277a?q=80&w=1200&auto=format&fit=crop",
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
     },
-    {
-      id: detectId++,
-      task_id: taskId,
-      type: "stamp",
-      bbox: [460, 190, 150, 120],
-      score: 0.67,
-      result: "suspicious",
-      matched_template_url:
-        "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?q=80&w=1200&auto=format&fit=crop",
-    },
-  ];
-  return base;
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let detail = `Request failed: ${response.status}`;
+    try {
+      const errorPayload = (await response.json()) as ApiErrorPayload;
+      if (errorPayload.detail) {
+        detail = errorPayload.detail;
+      }
+    } catch {
+      // ignore JSON parse errors for non-JSON responses.
+    }
+    throw new Error(detail);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return (await response.json()) as T;
 }
 
 export async function getCustomers(): Promise<Customer[]> {
-  await delay();
-  return [...customers];
+  return request<Customer[]>("/api/customers");
 }
 
 export async function createCustomer(name: string): Promise<Customer> {
-  await delay();
-  const customer = { id: customerId++, name };
-  customers.unshift(customer);
-  return customer;
+  return request<Customer>("/api/customers", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
 }
 
 export async function getTemplates(customerIdValue: number): Promise<Template[]> {
-  await delay();
-  return templates.filter((item) => item.customer_id === customerIdValue);
+  const data = await request<Template[]>(`/api/templates?customer_id=${customerIdValue}`);
+  return data.map((item) => ({
+    ...item,
+    image_url: normalizeImageUrl(item.image_url),
+  }));
 }
 
 export async function uploadTemplate(params: {
   customerIdValue: number;
   type: "signature" | "stamp";
+  file: Blob;
   fileName: string;
 }): Promise<Template> {
-  await delay(600);
-  const template: Template = {
-    id: templateId++,
-    customer_id: params.customerIdValue,
-    type: params.type,
-    image_url:
-      params.type === "signature"
-        ? "https://images.unsplash.com/photo-1521791136064-7986c2920216?q=80&w=1200&auto=format&fit=crop"
-        : "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?q=80&w=1200&auto=format&fit=crop",
-    created_at: nowIso(),
+  const formData = new FormData();
+  formData.append("customer_id", String(params.customerIdValue));
+  formData.append("type", params.type);
+  formData.append("file", params.file, params.fileName);
+
+  const response = await fetch(`${API_BASE}/api/templates/upload`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorPayload = (await response.json().catch(() => ({}))) as ApiErrorPayload;
+    throw new Error(errorPayload.detail ?? `Upload template failed: ${response.status}`);
+  }
+
+  const template = (await response.json()) as Template;
+  return {
+    ...template,
+    image_url: normalizeImageUrl(template.image_url),
   };
-  templates.unshift(template);
-  return template;
 }
 
 export async function deleteTemplate(templateIdValue: number): Promise<void> {
-  await delay();
-  const index = templates.findIndex((item) => item.id === templateIdValue);
-  if (index >= 0) {
-    templates.splice(index, 1);
-  }
+  await request<{ status: string }>(`/api/templates/${templateIdValue}`, {
+    method: "DELETE",
+  });
 }
 
-export async function uploadOrder(fileName: string): Promise<{ task_id: string }> {
-  await delay(500);
-  const task_id = `task_${Date.now()}`;
-  tasks.unshift({
-    task_id,
-    file_name: fileName,
-    image_url:
-      "https://images.unsplash.com/photo-1566576912321-d58ddd7a6088?q=80&w=1200&auto=format&fit=crop",
-    status: "running",
-    created_at: nowIso(),
+export async function uploadOrder(file: Blob, fileName: string): Promise<{ task_id: string }> {
+  const formData = new FormData();
+  formData.append("file", file, fileName);
+
+  const response = await fetch(`${API_BASE}/api/upload`, {
+    method: "POST",
+    body: formData,
   });
-  detectionsByTask.set(task_id, buildMockDetections(task_id));
 
-  setTimeout(() => {
-    const task = tasks.find((item) => item.task_id === task_id);
-    if (task) task.status = "done";
-  }, 2200);
+  if (!response.ok) {
+    const errorPayload = (await response.json().catch(() => ({}))) as ApiErrorPayload;
+    throw new Error(errorPayload.detail ?? `Upload order failed: ${response.status}`);
+  }
 
-  return { task_id };
+  return (await response.json()) as { task_id: string };
 }
 
 export async function getResult(taskId: string): Promise<TaskResult> {
-  await delay(300);
-  const task = tasks.find((item) => item.task_id === taskId);
-  if (!task) {
-    return { status: "pending", detections: [] };
-  }
+  const data = await request<TaskResult>(`/api/result/${taskId}`);
   return {
-    status: task.status,
-    detections: detectionsByTask.get(taskId) ?? [],
+    ...data,
+    detections: data.detections.map((item) => ({
+      ...item,
+      matched_template_url: normalizeImageUrl(item.matched_template_url),
+    })),
   };
 }
 
 export async function getTask(taskId: string): Promise<UploadTask | null> {
-  await delay(150);
-  return tasks.find((item) => item.task_id === taskId) ?? null;
+  const data = await request<UploadTask | null>(`/api/tasks/${taskId}`);
+  if (!data) return null;
+  return {
+    ...data,
+    image_url: normalizeImageUrl(data.image_url),
+  };
 }
 
 export async function getLatestTask(): Promise<UploadTask | null> {
-  await delay(120);
-  return tasks[0] ?? null;
+  const data = await request<UploadTask | null>("/api/tasks/latest");
+  if (!data) return null;
+  return {
+    ...data,
+    image_url: normalizeImageUrl(data.image_url),
+  };
 }
 
 export async function reviewDetection(params: {
   detect_id: number;
   result: ReviewResult;
 }): Promise<ReviewRecord> {
-  await delay(250);
-  for (const detections of detectionsByTask.values()) {
-    const target = detections.find((item) => item.id === params.detect_id);
-    if (target) {
-      target.result = params.result;
-      break;
-    }
-  }
-
-  const record: ReviewRecord = {
-    id: reviewId++,
-    detect_id: params.detect_id,
-    result: params.result,
-    created_at: nowIso(),
-  };
-  reviews.unshift(record);
-  return record;
+  return request<ReviewRecord>("/api/review", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
 }
 
 export async function getHistory(): Promise<
@@ -189,19 +167,7 @@ export async function getHistory(): Promise<
     reviews: number;
   }>
 > {
-  await delay();
-  return tasks.map((task) => {
-    const detections = detectionsByTask.get(task.task_id) ?? [];
-    const reviewCount = detections.filter((d) =>
-      reviews.some((review) => review.detect_id === d.id),
-    ).length;
-
-    return {
-      id: task.task_id,
-      created_at: task.created_at,
-      status: task.status,
-      detections: detections.length,
-      reviews: reviewCount,
-    };
-  });
+  return request<Array<{ id: string; created_at: string; status: UploadTask["status"]; detections: number; reviews: number }>>(
+    "/api/history",
+  );
 }

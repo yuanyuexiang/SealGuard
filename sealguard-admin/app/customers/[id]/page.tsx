@@ -32,8 +32,8 @@ export default function CustomerDetailPage() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: (fileName: string) =>
-      uploadTemplate({ customerIdValue: customerId, type: templateType, fileName }),
+    mutationFn: ({ file, fileName }: { file: Blob; fileName: string }) =>
+      uploadTemplate({ customerIdValue: customerId, type: templateType, file, fileName }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["templates", customerId] });
       message.success("模板上传成功");
@@ -57,14 +57,20 @@ export default function CustomerDetailPage() {
     multiple: false,
     showUploadList: false,
     customRequest: async (options) => {
-      const fileName =
-        typeof options.file === "string"
-          ? options.file
-          : "name" in options.file
-            ? options.file.name
-            : `template-${Date.now()}.jpg`;
       try {
-        await uploadMutation.mutateAsync(fileName);
+        if (typeof options.file === "string") {
+          throw new Error("Invalid upload file");
+        }
+        const fileName = "name" in options.file ? options.file.name : `template-${Date.now()}.jpg`;
+        const candidate =
+          "originFileObj" in options.file && options.file.originFileObj
+            ? options.file.originFileObj
+            : options.file;
+        if (!(candidate instanceof Blob)) {
+          throw new Error("Invalid upload payload");
+        }
+        const file: Blob = candidate;
+        await uploadMutation.mutateAsync({ file, fileName });
         options.onSuccess?.({}, options.file);
       } catch {
         options.onError?.(new Error("upload failed"));

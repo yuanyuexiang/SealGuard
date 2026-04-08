@@ -10,7 +10,7 @@ Backend API service for SealGuard.
 ## Run (uvicorn)
 ```bash
 uv sync --python 3.12
-uvicorn main:app --reload
+uv run uvicorn main:app --reload
 ```
 
 Production example:
@@ -31,6 +31,7 @@ sealguard-api/
 ├─ bootstrap/       # Config and dependency wiring
 ├─ shared/          # Shared utilities
 ├─ .env
+├─ artifacts/       # bundled model artifacts for detection
 ├─ pyproject.toml
 └─ uv.lock
 ```
@@ -50,15 +51,38 @@ Modules:
 - `bootstrap/config.py`: load and build database settings
 - `infrastructure/db/session.py`: create SQLAlchemy engine and SessionLocal
 
+## File storage (no MinIO)
+
+This version uses local file storage by default.
+
+- Runtime directory: `./runtime`
+- Static URL prefix: `/static`
+- Uploaded order images: `./runtime/uploads/orders`
+- Uploaded template images: `./runtime/uploads/templates`
+
+Optional env vars:
+
+```bash
+export RUNTIME_DIR=/absolute/path/to/runtime
+export STATIC_URL_PREFIX=/static
+```
+
 ## SealVision detection microservice
 
 This API includes a migrated detection service from:
 
-`sealguard-ai/sealvision_model_bundle_20260408`
+`artifacts/sealvision`
 
 Default expected model bundle path:
 
-`../sealguard-ai/sealvision_model_bundle_20260408`
+`./artifacts/sealvision`
+
+Required files under bundle directory:
+
+```text
+model/sealvision_best.pt
+docs/classes.yaml
+```
 
 You can override with env vars:
 
@@ -70,6 +94,20 @@ export SEALVISION_CONF=0.25
 ```
 
 ### API
+
+Core admin APIs aligned with `sealguard-admin`:
+
+- `GET /api/customers`
+- `POST /api/customers`
+- `GET /api/templates?customer_id={id}`
+- `POST /api/templates/upload`
+- `DELETE /api/templates/{template_id}`
+- `POST /api/upload`
+- `GET /api/result/{task_id}`
+- `GET /api/tasks/{task_id}`
+- `GET /api/tasks/latest`
+- `POST /api/review`
+- `GET /api/history`
 
 `POST /api/detect`
 

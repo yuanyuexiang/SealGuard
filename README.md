@@ -57,7 +57,7 @@ FastAPI Backend（同步处理）
         ↓
 AI模块（YOLO + Siamese）
         ↓
-PostgreSQL + MinIO
+PostgreSQL + LocalStorge
 ```
 
 说明：

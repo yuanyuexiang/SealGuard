@@ -22,6 +22,8 @@ class Settings:
     sealvision_img_size: int
     sealvision_conf: float
     sealvision_device: str
+    runtime_dir: str
+    static_url_prefix: str
 
 
 @lru_cache(maxsize=1)
@@ -35,7 +37,8 @@ def get_settings() -> Settings:
     default_db_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
 
     project_root = Path(__file__).resolve().parents[1]
-    default_bundle_dir = project_root.parent / "sealguard-ai" / "sealvision_model_bundle_20260408"
+    default_bundle_dir = project_root / "artifacts" / "sealvision"
+    default_runtime_dir = project_root / "runtime"
 
     return Settings(
         postgres_host=host,
@@ -48,4 +51,6 @@ def get_settings() -> Settings:
         sealvision_img_size=int(os.getenv("SEALVISION_IMG_SIZE", "960")),
         sealvision_conf=float(os.getenv("SEALVISION_CONF", "0.25")),
         sealvision_device=os.getenv("SEALVISION_DEVICE", "cpu"),
+        runtime_dir=os.getenv("RUNTIME_DIR", str(default_runtime_dir)),
+        static_url_prefix=os.getenv("STATIC_URL_PREFIX", "/static"),
     )

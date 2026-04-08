@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DetectionItemDTO(BaseModel):
@@ -13,6 +13,8 @@ class DetectionItemDTO(BaseModel):
 
 
 class DetectResponseDTO(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     file_name: str
     image_width: int
     image_height: int

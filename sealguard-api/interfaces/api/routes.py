@@ -1,7 +1,26 @@
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from datetime import datetime
+from uuid import uuid4
 
-from bootstrap.dependencies import get_detect_use_case
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from bootstrap.dependencies import get_db_session, get_detect_use_case, get_local_storage
 from domain.detection.entities import DetectionResult
+from infrastructure.db.models import CustomerModel, DetectionModel, ReviewModel, TaskModel, TemplateModel
+from infrastructure.storage.local_storage import LocalStorage
+from interfaces.api.dto.business import (
+    CustomerCreateRequest,
+    CustomerDTO,
+    DetectionDTO,
+    HistoryItemDTO,
+    ReviewRecordDTO,
+    ReviewRequest,
+    TaskResultDTO,
+    TemplateDTO,
+    UploadOrderResponse,
+    UploadTaskDTO,
+)
 from interfaces.api.dto.detect import DetectResponseDTO, DetectionItemDTO
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -10,6 +29,20 @@ router = APIRouter(prefix="/api", tags=["api"])
 @router.get("/ping")
 def ping() -> dict[str, str]:
     return {"message": "pong"}
+
+
+def _to_iso(dt: datetime | None) -> str:
+    if dt is None:
+        return datetime.utcnow().isoformat()
+    return dt.isoformat()
+
+
+def _score_to_result(score: float) -> str:
+    if score >= 0.85:
+        return "true"
+    if score >= 0.6:
+        return "suspicious"
+    return "false"
 
 
 def _to_response_dto(result: DetectionResult) -> DetectResponseDTO:
@@ -28,6 +61,251 @@ def _to_response_dto(result: DetectionResult) -> DetectResponseDTO:
             for item in result.detections
         ],
     )
+
+
+def _to_detection_dto(row: DetectionModel) -> DetectionDTO:
+    return DetectionDTO(
+        id=row.id,
+        task_id=row.task_id,
+        type=row.type,
+        bbox=[row.x, row.y, row.w, row.h],
+        score=row.score,
+        result=row.result,
+        matched_template_url=row.matched_template_url,
+    )
+
+
+@router.get("/customers", response_model=list[CustomerDTO])
+def get_customers(db: Session = Depends(get_db_session)) -> list[CustomerDTO]:
+    rows = db.execute(select(CustomerModel).order_by(CustomerModel.id.desc())).scalars().all()
+    return [CustomerDTO(id=row.id, name=row.name) for row in rows]
+
+
+@router.post("/customers", response_model=CustomerDTO)
+def create_customer(payload: CustomerCreateRequest, db: Session = Depends(get_db_session)) -> CustomerDTO:
+    row = CustomerModel(name=payload.name.strip())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return CustomerDTO(id=row.id, name=row.name)
+
+
+@router.get("/templates", response_model=list[TemplateDTO])
+def get_templates(customer_id: int, db: Session = Depends(get_db_session)) -> list[TemplateDTO]:
+    rows = (
+        db.execute(
+            select(TemplateModel)
+            .where(TemplateModel.customer_id == customer_id)
+            .order_by(TemplateModel.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        TemplateDTO(
+            id=row.id,
+            customer_id=row.customer_id,
+            type=row.type,
+            image_url=row.image_url,
+            created_at=_to_iso(row.created_at),
+        )
+        for row in rows
+    ]
+
+
+@router.post("/templates/upload", response_model=TemplateDTO)
+async def upload_template(
+    customer_id: int = Form(...),
+    type: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db_session),
+    storage: LocalStorage = Depends(get_local_storage),
+) -> TemplateDTO:
+    if type not in {"signature", "stamp"}:
+        raise HTTPException(status_code=400, detail="Template type must be signature or stamp.")
+
+    customer = db.get(CustomerModel, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded template is empty.")
+
+    _, image_url = storage.save_image(image_bytes=image_bytes, original_name=file.filename or "template.jpg", category="templates")
+
+    row = TemplateModel(customer_id=customer_id, type=type, image_url=image_url)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    return TemplateDTO(
+        id=row.id,
+        customer_id=row.customer_id,
+        type=row.type,
+        image_url=row.image_url,
+        created_at=_to_iso(row.created_at),
+    )
+
+
+@router.delete("/templates/{template_id}")
+def delete_template(template_id: int, db: Session = Depends(get_db_session)) -> dict[str, str]:
+    row = db.get(TemplateModel, template_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Template not found.")
+    db.delete(row)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/upload", response_model=UploadOrderResponse)
+async def upload_order(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db_session),
+    storage: LocalStorage = Depends(get_local_storage),
+) -> UploadOrderResponse:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
+
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    task_id = f"task_{uuid4().hex[:12]}"
+    _, image_url = storage.save_image(image_bytes=image_bytes, original_name=file.filename, category="orders")
+
+    task = TaskModel(task_id=task_id, file_name=file.filename, image_url=image_url, status="running")
+    db.add(task)
+    db.commit()
+
+    try:
+        use_case = get_detect_use_case()
+        detect_result = use_case.execute(file_name=file.filename, image_bytes=image_bytes)
+
+        for item in detect_result.detections:
+            matched_template = (
+                db.execute(
+                    select(TemplateModel)
+                    .where(TemplateModel.type == item.label)
+                    .order_by(TemplateModel.created_at.desc())
+                )
+                .scalars()
+                .first()
+            )
+
+            row = DetectionModel(
+                task_id=task_id,
+                type=item.label,
+                x=item.bbox[0],
+                y=item.bbox[1],
+                w=item.bbox[2],
+                h=item.bbox[3],
+                score=item.confidence,
+                result=_score_to_result(item.confidence),
+                matched_template_url=matched_template.image_url if matched_template else "",
+            )
+            db.add(row)
+
+        task.status = "done"
+        db.commit()
+    except RuntimeError as exc:
+        task.status = "done"
+        db.commit()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return UploadOrderResponse(task_id=task_id)
+
+
+@router.get("/result/{task_id}", response_model=TaskResultDTO)
+def get_result(task_id: str, db: Session = Depends(get_db_session)) -> TaskResultDTO:
+    task = db.get(TaskModel, task_id)
+    if task is None:
+        return TaskResultDTO(status="pending", detections=[])
+
+    rows = (
+        db.execute(select(DetectionModel).where(DetectionModel.task_id == task_id).order_by(DetectionModel.id.asc()))
+        .scalars()
+        .all()
+    )
+    return TaskResultDTO(status=task.status, detections=[_to_detection_dto(row) for row in rows])
+
+
+@router.get("/tasks/{task_id}", response_model=UploadTaskDTO | None)
+def get_task(task_id: str, db: Session = Depends(get_db_session)) -> UploadTaskDTO | None:
+    task = db.get(TaskModel, task_id)
+    if task is None:
+        return None
+    return UploadTaskDTO(
+        task_id=task.task_id,
+        file_name=task.file_name,
+        image_url=task.image_url,
+        status=task.status,
+        created_at=_to_iso(task.created_at),
+    )
+
+
+@router.get("/tasks/latest", response_model=UploadTaskDTO | None)
+def get_latest_task(db: Session = Depends(get_db_session)) -> UploadTaskDTO | None:
+    task = db.execute(select(TaskModel).order_by(TaskModel.created_at.desc())).scalars().first()
+    if task is None:
+        return None
+    return UploadTaskDTO(
+        task_id=task.task_id,
+        file_name=task.file_name,
+        image_url=task.image_url,
+        status=task.status,
+        created_at=_to_iso(task.created_at),
+    )
+
+
+@router.post("/review", response_model=ReviewRecordDTO)
+def review(payload: ReviewRequest, db: Session = Depends(get_db_session)) -> ReviewRecordDTO:
+    if payload.result not in {"true", "false", "suspicious"}:
+        raise HTTPException(status_code=400, detail="Invalid review result.")
+
+    detection = db.get(DetectionModel, payload.detect_id)
+    if detection is None:
+        raise HTTPException(status_code=404, detail="Detection item not found.")
+
+    detection.result = payload.result
+    review_row = ReviewModel(detect_id=payload.detect_id, result=payload.result)
+    db.add(review_row)
+    db.commit()
+    db.refresh(review_row)
+
+    return ReviewRecordDTO(
+        id=review_row.id,
+        detect_id=review_row.detect_id,
+        result=review_row.result,
+        created_at=_to_iso(review_row.created_at),
+    )
+
+
+@router.get("/history", response_model=list[HistoryItemDTO])
+def get_history(db: Session = Depends(get_db_session)) -> list[HistoryItemDTO]:
+    tasks = db.execute(select(TaskModel).order_by(TaskModel.created_at.desc())).scalars().all()
+
+    items: list[HistoryItemDTO] = []
+    for task in tasks:
+        detection_count = db.execute(
+            select(func.count(DetectionModel.id)).where(DetectionModel.task_id == task.task_id)
+        ).scalar_one()
+        review_count = db.execute(
+            select(func.count(ReviewModel.id))
+            .join(DetectionModel, ReviewModel.detect_id == DetectionModel.id)
+            .where(DetectionModel.task_id == task.task_id)
+        ).scalar_one()
+
+        items.append(
+            HistoryItemDTO(
+                id=task.task_id,
+                created_at=_to_iso(task.created_at),
+                status=task.status,
+                detections=int(detection_count),
+                reviews=int(review_count),
+            )
+        )
+    return items
 
 
 @router.post("/detect", response_model=DetectResponseDTO)
