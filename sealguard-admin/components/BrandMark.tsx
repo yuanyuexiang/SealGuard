@@ -5,7 +5,7 @@ export default function BrandMark({ compact = false }: { compact?: boolean }) {
     <div className={compact ? "brand-mark compact" : "brand-mark"}>
       <div className={compact ? "brand-logo-frame compact" : "brand-logo-frame"}>
         <Image
-          src="/fQMAGJ7Wp.jpeg"
+          src="/logo.jpeg"
           alt="Coca-Cola logo"
           fill
           className="brand-logo-image"
