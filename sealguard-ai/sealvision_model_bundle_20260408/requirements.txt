@@ -1,0 +1,4 @@
+ultralytics
+pyyaml
+# 可选：本地可视化/绘制结果时需要
+opencv-python
