@@ -22,6 +22,12 @@ class Settings:
     sealvision_img_size: int
     sealvision_conf: float
     sealvision_device: str
+    siamese_weights_path: str
+    siamese_input_size: int
+    siamese_embedding_dim: int
+    siamese_device: str
+    siamese_strict_loading: bool
+    siamese_allow_lightweight_fallback: bool
     runtime_dir: str
     static_url_prefix: str
 
@@ -38,6 +44,7 @@ def get_settings() -> Settings:
 
     project_root = Path(__file__).resolve().parents[1]
     default_bundle_dir = project_root / "artifacts" / "sealvision"
+    default_siamese_weights = project_root / "artifacts" / "siamese" / "model" / "siamese_best.pth"
     default_runtime_dir = project_root / "runtime"
 
     return Settings(
@@ -51,6 +58,13 @@ def get_settings() -> Settings:
         sealvision_img_size=int(os.getenv("SEALVISION_IMG_SIZE", "960")),
         sealvision_conf=float(os.getenv("SEALVISION_CONF", "0.25")),
         sealvision_device=os.getenv("SEALVISION_DEVICE", "cpu"),
+        siamese_weights_path=os.getenv("SIAMESE_WEIGHTS_PATH", str(default_siamese_weights)),
+        siamese_input_size=int(os.getenv("SIAMESE_INPUT_SIZE", "224")),
+        siamese_embedding_dim=int(os.getenv("SIAMESE_EMBEDDING_DIM", "128")),
+        siamese_device=os.getenv("SIAMESE_DEVICE", "cpu"),
+        siamese_strict_loading=os.getenv("SIAMESE_STRICT_LOADING", "true").lower() == "true",
+        siamese_allow_lightweight_fallback=os.getenv("SIAMESE_ALLOW_LIGHTWEIGHT_FALLBACK", "true").lower()
+        == "true",
         runtime_dir=os.getenv("RUNTIME_DIR", str(default_runtime_dir)),
         static_url_prefix=os.getenv("STATIC_URL_PREFIX", "/static"),
     )

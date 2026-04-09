@@ -7,6 +7,7 @@ from typing import Generator
 from application.detection.use_cases import DetectDeliveryNoteUseCase
 from bootstrap.config import get_settings
 from infrastructure.ai.sealvision_engine import SealVisionEngine
+from infrastructure.ai.siamese_vector_matcher import SiameseVectorMatcher
 from infrastructure.db.session import SessionLocal
 from infrastructure.storage.local_storage import LocalStorage
 
@@ -39,3 +40,16 @@ def get_db_session() -> Generator:
 def get_local_storage() -> LocalStorage:
     settings = get_settings()
     return LocalStorage(runtime_dir=Path(settings.runtime_dir), static_url_prefix=settings.static_url_prefix)
+
+
+@lru_cache(maxsize=1)
+def get_vector_matcher() -> SiameseVectorMatcher:
+    settings = get_settings()
+    return SiameseVectorMatcher(
+        weights_path=settings.siamese_weights_path,
+        input_size=settings.siamese_input_size,
+        embedding_dim=settings.siamese_embedding_dim,
+        device=settings.siamese_device,
+        strict_loading=settings.siamese_strict_loading,
+        allow_lightweight_fallback=settings.siamese_allow_lightweight_fallback,
+    )

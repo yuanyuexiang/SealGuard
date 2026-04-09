@@ -24,6 +24,11 @@ def startup_init() -> None:
     (runtime_dir / "uploads" / "orders").mkdir(parents=True, exist_ok=True)
     (runtime_dir / "uploads" / "templates").mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    # Simple schema patch for existing databases without migrations.
+    with engine.begin() as connection:
+        connection.execute(
+            text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS embedding_json TEXT")
+        )
 
 
 app.mount(settings.static_url_prefix, StaticFiles(directory=settings.runtime_dir), name="static")

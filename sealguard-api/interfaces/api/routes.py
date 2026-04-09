@@ -1,12 +1,17 @@
 from datetime import datetime
+import json
+from pathlib import Path
+from urllib.request import urlopen
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from bootstrap.dependencies import get_db_session, get_detect_use_case, get_local_storage
+from bootstrap.config import get_settings
+from bootstrap.dependencies import get_db_session, get_detect_use_case, get_local_storage, get_vector_matcher
 from domain.detection.entities import DetectionResult
+from infrastructure.ai.siamese_vector_matcher import SiameseVectorMatcher
 from infrastructure.db.models import CustomerModel, DetectionModel, ReviewModel, TaskModel, TemplateModel
 from infrastructure.storage.local_storage import LocalStorage
 from interfaces.api.dto.business import (
@@ -43,6 +48,27 @@ def _score_to_result(score: float) -> str:
     if score >= 0.6:
         return "suspicious"
     return "false"
+
+
+def _read_template_bytes(image_url: str) -> bytes:
+    settings = get_settings()
+
+    if image_url.startswith(settings.static_url_prefix + "/"):
+        relative = image_url[len(settings.static_url_prefix) + 1 :]
+        path = Path(settings.runtime_dir) / relative
+        if not path.exists():
+            raise RuntimeError(f"Template image not found: {path}")
+        return path.read_bytes()
+
+    if image_url.startswith("http://") or image_url.startswith("https://"):
+        with urlopen(image_url, timeout=10) as resp:  # nosec B310
+            return resp.read()
+
+    path = Path(image_url)
+    if path.exists():
+        return path.read_bytes()
+
+    raise RuntimeError(f"Unsupported template image url/path: {image_url}")
 
 
 def _to_response_dto(result: DetectionResult) -> DetectResponseDTO:
@@ -120,6 +146,7 @@ async def upload_template(
     file: UploadFile = File(...),
     db: Session = Depends(get_db_session),
     storage: LocalStorage = Depends(get_local_storage),
+    matcher: SiameseVectorMatcher = Depends(get_vector_matcher),
 ) -> TemplateDTO:
     if type not in {"signature", "stamp"}:
         raise HTTPException(status_code=400, detail="Template type must be signature or stamp.")
@@ -132,9 +159,15 @@ async def upload_template(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Uploaded template is empty.")
 
+    embedding = matcher.encode_image(image_bytes)
     _, image_url = storage.save_image(image_bytes=image_bytes, original_name=file.filename or "template.jpg", category="templates")
 
-    row = TemplateModel(customer_id=customer_id, type=type, image_url=image_url)
+    row = TemplateModel(
+        customer_id=customer_id,
+        type=type,
+        image_url=image_url,
+        embedding_json=json.dumps(embedding, ensure_ascii=True),
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -163,6 +196,7 @@ async def upload_order(
     file: UploadFile = File(...),
     db: Session = Depends(get_db_session),
     storage: LocalStorage = Depends(get_local_storage),
+    matcher: SiameseVectorMatcher = Depends(get_vector_matcher),
 ) -> UploadOrderResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
@@ -183,15 +217,39 @@ async def upload_order(
         detect_result = use_case.execute(file_name=file.filename, image_bytes=image_bytes)
 
         for item in detect_result.detections:
-            matched_template = (
+            best_template: TemplateModel | None = None
+            best_score = 0.0
+
+            query_templates = (
                 db.execute(
                     select(TemplateModel)
-                    .where(TemplateModel.type == item.label)
+                    .where(
+                        TemplateModel.type == item.label,
+                        TemplateModel.embedding_json.is_not(None),
+                    )
                     .order_by(TemplateModel.created_at.desc())
                 )
                 .scalars()
-                .first()
+                .all()
             )
+
+            if query_templates:
+                detection_embedding = matcher.encode_crop(image_bytes=image_bytes, bbox=item.bbox)
+                for template in query_templates:
+                    try:
+                        template_embedding = json.loads(template.embedding_json or "[]")
+                    except json.JSONDecodeError:
+                        continue
+
+                    if not template_embedding:
+                        continue
+
+                    score = matcher.cosine_similarity(detection_embedding, template_embedding)
+                    if score > best_score:
+                        best_score = score
+                        best_template = template
+
+            final_score = round(best_score if best_template else item.confidence, 4)
 
             row = DetectionModel(
                 task_id=task_id,
@@ -200,9 +258,9 @@ async def upload_order(
                 y=item.bbox[1],
                 w=item.bbox[2],
                 h=item.bbox[3],
-                score=item.confidence,
-                result=_score_to_result(item.confidence),
-                matched_template_url=matched_template.image_url if matched_template else "",
+                score=final_score,
+                result=_score_to_result(final_score),
+                matched_template_url=best_template.image_url if best_template else "",
             )
             db.add(row)
 
@@ -306,6 +364,38 @@ def get_history(db: Session = Depends(get_db_session)) -> list[HistoryItemDTO]:
             )
         )
     return items
+
+
+@router.post("/templates/rebuild-embeddings")
+def rebuild_template_embeddings(
+    db: Session = Depends(get_db_session),
+    matcher: SiameseVectorMatcher = Depends(get_vector_matcher),
+) -> dict[str, int]:
+    templates = db.execute(select(TemplateModel).order_by(TemplateModel.id.asc())).scalars().all()
+
+    total = len(templates)
+    updated = 0
+    skipped = 0
+
+    for template in templates:
+        if template.embedding_json:
+            skipped += 1
+            continue
+
+        try:
+            image_bytes = _read_template_bytes(template.image_url)
+            embedding = matcher.encode_image(image_bytes)
+            template.embedding_json = json.dumps(embedding, ensure_ascii=True)
+            updated += 1
+        except Exception:
+            skipped += 1
+
+    db.commit()
+    return {
+        "total": total,
+        "updated": updated,
+        "skipped": skipped,
+    }
 
 
 @router.post("/detect", response_model=DetectResponseDTO)

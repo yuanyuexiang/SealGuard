@@ -93,6 +93,29 @@ export SEALVISION_IMG_SIZE=960
 export SEALVISION_CONF=0.25
 ```
 
+## Siamese embedding matcher
+
+The matcher now loads real Siamese weights for embedding inference.
+
+Supported model formats:
+
+- TorchScript (`.jit`, `.ts`)
+- PyTorch checkpoint/state_dict (`.pt`, `.pth`)
+
+Environment variables:
+
+```bash
+export SIAMESE_WEIGHTS_PATH=/absolute/path/to/siamese_best.pth
+export SIAMESE_INPUT_SIZE=224
+export SIAMESE_EMBEDDING_DIM=128
+export SIAMESE_DEVICE=cpu
+export SIAMESE_STRICT_LOADING=true
+export SIAMESE_ALLOW_LIGHTWEIGHT_FALLBACK=true
+```
+
+If `SIAMESE_ALLOW_LIGHTWEIGHT_FALLBACK=false`, startup/request will fail when the Siamese
+weights cannot be loaded.
+
 ### API
 
 Core admin APIs aligned with `sealguard-admin`:
@@ -108,6 +131,7 @@ Core admin APIs aligned with `sealguard-admin`:
 - `GET /api/tasks/latest`
 - `POST /api/review`
 - `GET /api/history`
+- `POST /api/templates/rebuild-embeddings`
 
 `POST /api/detect`
 
@@ -120,6 +144,22 @@ Core admin APIs aligned with `sealguard-admin`:
 Example:
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/detect?imgsz=960&conf=0.25&device=cpu" \
+curl -X POST "http://127.0.0.1:8001/api/detect?imgsz=960&conf=0.25&device=cpu" \
 	-F "file=@/path/to/delivery_note.jpg"
+```
+
+## Template embedding backfill
+
+When historical templates have empty `embedding_json`, you can backfill in two ways:
+
+Online API:
+
+```bash
+curl -X POST "http://127.0.0.1:8001/api/templates/rebuild-embeddings"
+```
+
+Offline script:
+
+```bash
+uv run python -m bootstrap.backfill_template_embeddings
 ```
