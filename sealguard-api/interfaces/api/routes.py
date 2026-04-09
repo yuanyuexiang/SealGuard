@@ -21,6 +21,7 @@ from interfaces.api.dto.business import (
     CustomerUpdateRequest,
     DetectionDTO,
     HistoryItemDTO,
+    PendingReviewItemDTO,
     ReviewRecordDTO,
     ReviewRequest,
     TaskResultDTO,
@@ -101,6 +102,29 @@ def _to_detection_dto(row: DetectionModel) -> DetectionDTO:
         result=row.result,
         matched_template_url=row.matched_template_url,
     )
+
+
+def _refresh_task_audit_state(db: Session, task_id: str) -> None:
+    task = db.get(TaskModel, task_id)
+    if task is None:
+        return
+
+    results = db.execute(
+        select(DetectionModel.result).where(DetectionModel.task_id == task_id)
+    ).scalars().all()
+
+    if not results:
+        task.status = "done"
+        task.audit_result = None
+        return
+
+    if any(item == "suspicious" for item in results):
+        task.status = "pending_review"
+        task.audit_result = None
+        return
+
+    task.status = "done"
+    task.audit_result = "false" if any(item == "false" for item in results) else "true"
 
 
 def _find_customer_by_name(db: Session, name: str, exclude_id: int | None = None) -> CustomerModel | None:
@@ -337,6 +361,7 @@ async def upload_order(
         file_name=file.filename,
         image_url=image_url,
         status="running",
+        audit_result=None,
     )
     db.add(task)
     db.commit()
@@ -394,10 +419,12 @@ async def upload_order(
             )
             db.add(row)
 
-        task.status = "done"
+        db.flush()
+        _refresh_task_audit_state(db, task_id)
         db.commit()
     except RuntimeError as exc:
         task.status = "done"
+        task.audit_result = None
         db.commit()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -432,6 +459,7 @@ def get_task(task_id: str, db: Session = Depends(get_db_session)) -> UploadTaskD
         task_id=task.task_id,
         customer_id=task.customer_id,
         customer_name=customer_name,
+        audit_result=task.audit_result,
         file_name=task.file_name,
         image_url=task.image_url,
         status=task.status,
@@ -453,6 +481,7 @@ def get_latest_task(db: Session = Depends(get_db_session)) -> UploadTaskDTO | No
         task_id=task.task_id,
         customer_id=task.customer_id,
         customer_name=customer_name,
+        audit_result=task.audit_result,
         file_name=task.file_name,
         image_url=task.image_url,
         status=task.status,
@@ -472,6 +501,8 @@ def review(payload: ReviewRequest, db: Session = Depends(get_db_session)) -> Rev
     detection.result = payload.result
     review_row = ReviewModel(detect_id=payload.detect_id, result=payload.result)
     db.add(review_row)
+    db.flush()
+    _refresh_task_audit_state(db, detection.task_id)
     db.commit()
     db.refresh(review_row)
 
@@ -485,7 +516,15 @@ def review(payload: ReviewRequest, db: Session = Depends(get_db_session)) -> Rev
 
 @router.get("/history", response_model=list[HistoryItemDTO])
 def get_history(db: Session = Depends(get_db_session)) -> list[HistoryItemDTO]:
-    tasks = db.execute(select(TaskModel).order_by(TaskModel.created_at.desc())).scalars().all()
+    tasks = (
+        db.execute(
+            select(TaskModel)
+            .where(TaskModel.status == "done", TaskModel.audit_result.is_not(None))
+            .order_by(TaskModel.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
 
     items: list[HistoryItemDTO] = []
     for task in tasks:
@@ -502,12 +541,42 @@ def get_history(db: Session = Depends(get_db_session)) -> list[HistoryItemDTO]:
             HistoryItemDTO(
                 id=task.task_id,
                 created_at=_to_iso(task.created_at),
-                status=task.status,
+                result=task.audit_result or "false",
                 detections=int(detection_count),
                 reviews=int(review_count),
             )
         )
     return items
+
+
+@router.get("/review/pending", response_model=list[PendingReviewItemDTO])
+def get_pending_reviews(db: Session = Depends(get_db_session)) -> list[PendingReviewItemDTO]:
+    rows = db.execute(
+        select(
+            TaskModel.task_id,
+            TaskModel.created_at,
+            DetectionModel.id,
+            DetectionModel.type,
+            DetectionModel.score,
+            DetectionModel.result,
+        )
+        .join(DetectionModel, DetectionModel.task_id == TaskModel.task_id)
+        .where(TaskModel.status == "pending_review")
+        .where(DetectionModel.result == "suspicious")
+        .order_by(TaskModel.created_at.desc(), DetectionModel.id.asc())
+    ).all()
+
+    return [
+        PendingReviewItemDTO(
+            task_id=task_id,
+            task_created_at=_to_iso(task_created_at),
+            detect_id=detect_id,
+            type=detect_type,
+            score=float(score),
+            result=detect_result,
+        )
+        for task_id, task_created_at, detect_id, detect_type, score, detect_result in rows
+    ]
 
 
 @router.post("/templates/rebuild-embeddings")

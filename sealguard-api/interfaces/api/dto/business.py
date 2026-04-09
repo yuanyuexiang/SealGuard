@@ -41,6 +41,7 @@ class UploadTaskDTO(BaseModel):
     task_id: str
     customer_id: int | None = None
     customer_name: str | None = None
+    audit_result: str | None = None
     file_name: str
     image_url: str
     status: str
@@ -77,6 +78,15 @@ class ReviewRecordDTO(BaseModel):
 class HistoryItemDTO(BaseModel):
     id: str
     created_at: str
-    status: str
+    result: str
     detections: int
     reviews: int
+
+
+class PendingReviewItemDTO(BaseModel):
+    task_id: str
+    task_created_at: str
+    detect_id: int
+    type: str
+    score: float
+    result: str

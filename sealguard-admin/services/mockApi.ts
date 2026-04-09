@@ -2,6 +2,8 @@ import type {
   Customer,
   CustomerStats,
   DetectResponse,
+  HistoryItem,
+  PendingReviewItem,
   ReviewRecord,
   ReviewResult,
   TaskResult,
@@ -198,15 +200,22 @@ export async function reviewDetection(params: {
 }
 
 export async function getHistory(): Promise<
-  Array<{
-    id: string;
-    created_at: string;
-    status: UploadTask["status"];
-    detections: number;
-    reviews: number;
-  }>
+  HistoryItem[]
 > {
-  return request<Array<{ id: string; created_at: string; status: UploadTask["status"]; detections: number; reviews: number }>>(
-    "/api/history",
-  );
+  const rows = await request<Array<Record<string, unknown>>>("/api/history");
+  return rows.map((row) => {
+    const raw = row.result;
+    const result = raw === "true" || raw === "false" ? raw : null;
+    return {
+      id: String(row.id ?? ""),
+      created_at: String(row.created_at ?? ""),
+      result,
+      detections: Number(row.detections ?? 0),
+      reviews: Number(row.reviews ?? 0),
+    } satisfies HistoryItem;
+  });
+}
+
+export async function getPendingReviews(): Promise<PendingReviewItem[]> {
+  return request<PendingReviewItem[]>("/api/review/pending");
 }

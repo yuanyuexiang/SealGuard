@@ -32,6 +32,71 @@ def startup_init() -> None:
         connection.execute(
             text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS customer_id INTEGER")
         )
+        connection.execute(
+            text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS audit_result VARCHAR(16)")
+        )
+
+        # Backfill/recompute final audit state for legacy tasks.
+        connection.execute(
+            text(
+                """
+                UPDATE tasks t
+                SET status = 'pending_review', audit_result = NULL
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM detections d
+                    WHERE d.task_id = t.task_id
+                      AND d.result = 'suspicious'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE tasks t
+                SET status = 'done', audit_result = 'false'
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM detections d
+                    WHERE d.task_id = t.task_id
+                      AND d.result = 'suspicious'
+                )
+                  AND EXISTS (
+                    SELECT 1
+                    FROM detections d
+                    WHERE d.task_id = t.task_id
+                      AND d.result = 'false'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE tasks t
+                SET status = 'done', audit_result = 'true'
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM detections d
+                    WHERE d.task_id = t.task_id
+                      AND d.result = 'suspicious'
+                )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM detections d
+                    WHERE d.task_id = t.task_id
+                      AND d.result = 'false'
+                )
+                  AND EXISTS (
+                    SELECT 1
+                    FROM detections d
+                    WHERE d.task_id = t.task_id
+                      AND d.result = 'true'
+                )
+                """
+            )
+        )
 
 
 app.mount(settings.static_url_prefix, StaticFiles(directory=settings.runtime_dir), name="static")
