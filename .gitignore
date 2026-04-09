@@ -17,3 +17,4 @@ dist/
 # Data and uploads
 storage/
 *.log
+sealguard-api/runtime/

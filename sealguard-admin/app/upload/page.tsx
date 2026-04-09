@@ -1,20 +1,40 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Button, Card, Empty, Space, Typography, Upload } from "antd";
+import { Alert, Button, Card, Empty, Select, Space, Typography, Upload, message } from "antd";
 import type { UploadProps } from "antd";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import DetectionCanvas from "@/components/DetectionCanvas";
 import ResultTag from "@/components/ResultTag";
-import { getResult, getTask, uploadOrder } from "@/services/mockApi";
+import { getCustomers, getResult, getTask, uploadOrder } from "@/services/mockApi";
 
 export default function UploadPage() {
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
+
+  const customersQuery = useQuery({
+    queryKey: ["customers"],
+    queryFn: getCustomers,
+  });
+
+  useEffect(() => {
+    if (selectedCustomerId) {
+      return;
+    }
+    const first = customersQuery.data?.[0];
+    if (first) {
+      setSelectedCustomerId(first.id);
+    }
+  }, [customersQuery.data, selectedCustomerId]);
 
   const uploadMutation = useMutation({
-    mutationFn: ({ file, fileName }: { file: Blob; fileName: string }) => uploadOrder(file, fileName),
+    mutationFn: ({ customerId, file, fileName }: { customerId: number; file: Blob; fileName: string }) =>
+      uploadOrder({ customerIdValue: customerId, file, fileName }),
     onSuccess: (data) => setTaskId(data.task_id),
+    onError: (error: Error) => {
+      message.error(error.message || "上传失败");
+    },
   });
 
   const resultQuery = useQuery({
@@ -38,6 +58,10 @@ export default function UploadPage() {
     showUploadList: false,
     customRequest: async (options) => {
       try {
+        if (!selectedCustomerId) {
+          throw new Error("请先选择客户");
+        }
+
         if (typeof options.file === "string") {
           throw new Error("Invalid upload file");
         }
@@ -50,10 +74,18 @@ export default function UploadPage() {
           throw new Error("Invalid upload payload");
         }
         const file: Blob = candidate;
-        const response = await uploadMutation.mutateAsync({ file, fileName });
+        const response = await uploadMutation.mutateAsync({
+          customerId: selectedCustomerId,
+          file,
+          fileName,
+        });
         options.onSuccess?.(response, options.file);
-      } catch {
-        options.onError?.(new Error("upload failed"));
+      } catch (error) {
+        if (error instanceof Error) {
+          options.onError?.(error);
+        } else {
+          options.onError?.(new Error("upload failed"));
+        }
       }
     },
   };
@@ -68,12 +100,37 @@ export default function UploadPage() {
       </Card>
 
       <Card title="上传货单">
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Select
+            placeholder="请选择客户"
+            value={selectedCustomerId ?? undefined}
+            onChange={(value) => setSelectedCustomerId(value)}
+            loading={customersQuery.isLoading}
+            options={(customersQuery.data ?? []).map((customer) => ({
+              label: customer.name,
+              value: customer.id,
+            }))}
+            style={{ maxWidth: 360, width: "100%" }}
+          />
+          {!customersQuery.isLoading && !(customersQuery.data?.length ?? 0) && (
+            <Alert
+              type="warning"
+              showIcon
+              message="暂无可用客户"
+              description="请先在客户管理中创建客户并上传模板，再执行货单比对。"
+            />
+          )}
         <Upload.Dragger {...uploadProps} accept="image/*">
           <p>拖拽图片到此，或点击上传货单</p>
-          <Button type="primary" loading={uploadMutation.isPending}>
+          <Button
+            type="primary"
+            loading={uploadMutation.isPending}
+            disabled={uploadMutation.isPending || !selectedCustomerId}
+          >
             立即上传
           </Button>
         </Upload.Dragger>
+        </Space>
       </Card>
 
       <Card title="任务状态">
@@ -81,6 +138,9 @@ export default function UploadPage() {
         {taskId && (
           <Space direction="vertical" style={{ width: "100%" }}>
             <Typography.Text>任务ID：{taskId}</Typography.Text>
+            <Typography.Text>
+              客户：{taskQuery.data?.customer_name ?? customersQuery.data?.find((c) => c.id === selectedCustomerId)?.name ?? "-"}
+            </Typography.Text>
             <Typography.Text>
               当前状态：{resultQuery.data?.status ?? "pending"}
             </Typography.Text>

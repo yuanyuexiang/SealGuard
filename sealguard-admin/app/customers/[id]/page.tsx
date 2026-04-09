@@ -34,26 +34,6 @@ const MIN_DETECT_CONFIDENCE = 0.2;
 const MAX_TEMPLATE_AREA_RATIO = 0.45;
 const MIN_TEMPLATE_SIDE = 20;
 
-function isValidDetectBox(
-  bbox: [number, number, number, number],
-  imageWidth: number,
-  imageHeight: number,
-): boolean {
-  const [x, y, w, h] = bbox;
-  if (w < MIN_TEMPLATE_SIDE || h < MIN_TEMPLATE_SIDE) {
-    return false;
-  }
-
-  const imageArea = imageWidth * imageHeight;
-  const areaRatio = imageArea > 0 ? (w * h) / imageArea : 1;
-  if (areaRatio > MAX_TEMPLATE_AREA_RATIO) {
-    return false;
-  }
-
-  const outOfBounds = x < 0 || y < 0 || x + w > imageWidth + 1 || y + h > imageHeight + 1;
-  return !outOfBounds;
-}
-
 function getFriendlyErrorMessage(error: Error, actionName: string): string {
   const text = (error.message || "").toLowerCase();
 
@@ -71,7 +51,6 @@ export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
   const customerId = Number(params.id);
   const queryClient = useQueryClient();
-  const [templateType, setTemplateType] = useState<DetectionType>("signature");
   const [deletingTemplateId, setDeletingTemplateId] = useState<number | null>(null);
   const [detectedCandidates, setDetectedCandidates] = useState<DetectedTemplateCandidate[]>([]);
   const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string | null>(null);
@@ -82,18 +61,6 @@ export default function CustomerDetailPage() {
   const templatesQuery = useQuery({
     queryKey: ["templates", customerId],
     queryFn: () => getTemplates(customerId),
-  });
-
-  const uploadMutation = useMutation({
-    mutationFn: ({ file, fileName }: { file: Blob; fileName: string }) =>
-      uploadTemplate({ customerIdValue: customerId, type: templateType, file, fileName }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["templates", customerId] });
-      message.success("模板上传成功");
-    },
-    onError: (error: Error) => {
-      message.error(getFriendlyErrorMessage(error, "上传模板"));
-    },
   });
 
   const detectMutation = useMutation({
@@ -189,7 +156,7 @@ export default function CustomerDetailPage() {
     multiple: false,
     showUploadList: false,
     customRequest: async (options) => {
-      if (detectMutation.isPending || uploadMutation.isPending || deleteMutation.isPending || savingCandidateId) {
+      if (detectMutation.isPending || deleteMutation.isPending || savingCandidateId) {
         options.onError?.(new Error("busy"));
         return;
       }
@@ -294,61 +261,6 @@ export default function CustomerDetailPage() {
     },
   };
 
-  const uploadProps: UploadProps = {
-    multiple: false,
-    showUploadList: false,
-    customRequest: async (options) => {
-      if (uploadMutation.isPending || deleteMutation.isPending || detectMutation.isPending) {
-        options.onError?.(new Error("busy"));
-        return;
-      }
-
-      try {
-        if (typeof options.file === "string") {
-          throw new Error("Invalid upload file");
-        }
-        const fileName = "name" in options.file ? options.file.name : `template-${Date.now()}.jpg`;
-        const candidate =
-          "originFileObj" in options.file && options.file.originFileObj
-            ? options.file.originFileObj
-            : options.file;
-        if (!(candidate instanceof Blob)) {
-          throw new Error("Invalid upload payload");
-        }
-
-        const originalFile: Blob = candidate;
-        let uploadFile: Blob = originalFile;
-
-        try {
-          const detectResult = await detectMutation.mutateAsync({ file: originalFile, fileName });
-          const matchedDetections = detectResult.detections
-            .filter((item) => item.type === templateType)
-            .filter((item) => item.confidence >= MIN_DETECT_CONFIDENCE)
-            .filter((item) => isValidDetectBox(item.bbox, detectResult.image_width, detectResult.image_height))
-            .sort((a, b) => b.confidence - a.confidence);
-
-          if (matchedDetections.length > 0) {
-            uploadFile = await cropToBlob(originalFile, matchedDetections[0].bbox);
-            message.success(`已自动提取${templateType === "signature" ? "签字" : "印章"}区域后上传`);
-          } else {
-            message.warning(`未检测到可用${templateType === "signature" ? "签字" : "印章"}候选，已按原图上传`);
-          }
-        } catch {
-          message.warning("自动提取失败，已按原图上传");
-        }
-
-        await uploadMutation.mutateAsync({ file: uploadFile, fileName });
-        options.onSuccess?.({}, options.file);
-      } catch (error) {
-        if (error instanceof Error) {
-          options.onError?.(error);
-        } else {
-          options.onError?.(new Error("upload failed"));
-        }
-      }
-    },
-  };
-
   const saveDetectedTemplate = async (candidate: DetectedTemplateCandidate) => {
     if (savingCandidateId) {
       return;
@@ -424,39 +336,13 @@ export default function CustomerDetailPage() {
         </Typography.Paragraph>
       </Card>
 
-      <Card title="上传新模板（自动提取）">
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          上传整张单据时，会自动检测并提取当前类型（签字/印章）的最佳候选区域后保存。
-        </Typography.Paragraph>
-        <Space size={12} wrap>
-          <Segmented<DetectionType>
-            options={[
-              { label: "签字模板", value: "signature" },
-              { label: "印章模板", value: "stamp" },
-            ]}
-            value={templateType}
-            onChange={setTemplateType}
-            disabled={uploadMutation.isPending || deleteMutation.isPending || detectMutation.isPending}
-          />
-          <Upload {...uploadProps}>
-            <Button
-              type="primary"
-              loading={uploadMutation.isPending}
-              disabled={uploadMutation.isPending || deleteMutation.isPending || detectMutation.isPending}
-            >
-              上传并提取{templateType === "signature" ? "签字" : "印章"}
-            </Button>
-          </Upload>
-        </Space>
-      </Card>
-
       <Card title="智能检测上传模板（推荐）">
         <Space direction="vertical" size={12} style={{ width: "100%" }}>
           <Upload.Dragger
             {...detectUploadProps}
             accept="image/*"
             disabled={
-              detectMutation.isPending || uploadMutation.isPending || deleteMutation.isPending || !!savingCandidateId
+              detectMutation.isPending || deleteMutation.isPending || !!savingCandidateId
             }
           >
             <p>上传一张包含签字/印章的图片，系统会自动检测并裁剪出模板候选。</p>
@@ -610,14 +496,14 @@ export default function CustomerDetailPage() {
                 <Popconfirm
                   key={`delete-${template.id}`}
                   title="确认删除该模板吗？"
-                  disabled={deleteMutation.isPending || uploadMutation.isPending}
+                  disabled={deleteMutation.isPending || detectMutation.isPending || !!savingCandidateId}
                   onConfirm={() => deleteMutation.mutate(template.id)}
                 >
                   <Button
                     type="link"
                     danger
                     loading={deleteMutation.isPending && deletingTemplateId === template.id}
-                    disabled={deleteMutation.isPending || uploadMutation.isPending}
+                    disabled={deleteMutation.isPending || detectMutation.isPending || !!savingCandidateId}
                   >
                     删除
                   </Button>

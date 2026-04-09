@@ -121,9 +121,12 @@ export async function deleteTemplate(templateIdValue: number): Promise<void> {
   });
 }
 
-export async function uploadOrder(file: Blob, fileName: string): Promise<{ task_id: string }> {
+export async function uploadOrder(
+  params: { customerIdValue: number; file: Blob; fileName: string },
+): Promise<{ task_id: string }> {
   const formData = new FormData();
-  formData.append("file", file, fileName);
+  formData.append("customer_id", String(params.customerIdValue));
+  formData.append("file", params.file, params.fileName);
 
   const response = await fetch(`${API_BASE}/api/upload`, {
     method: "POST",

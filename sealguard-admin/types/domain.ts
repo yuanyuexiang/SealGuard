@@ -38,6 +38,8 @@ export type Detection = {
 
 export type UploadTask = {
   task_id: string;
+  customer_id?: number | null;
+  customer_name?: string | null;
   file_name: string;
   image_url: string;
   status: "pending" | "running" | "done";

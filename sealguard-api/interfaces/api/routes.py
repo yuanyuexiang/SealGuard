@@ -311,11 +311,16 @@ def delete_template(template_id: int, db: Session = Depends(get_db_session)) -> 
 
 @router.post("/upload", response_model=UploadOrderResponse)
 async def upload_order(
+    customer_id: int = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db_session),
     storage: LocalStorage = Depends(get_local_storage),
     matcher: SiameseVectorMatcher = Depends(get_vector_matcher),
 ) -> UploadOrderResponse:
+    customer = db.get(CustomerModel, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file must have a filename.")
 
@@ -326,7 +331,13 @@ async def upload_order(
     task_id = f"task_{uuid4().hex[:12]}"
     _, image_url = storage.save_image(image_bytes=image_bytes, original_name=file.filename, category="orders")
 
-    task = TaskModel(task_id=task_id, file_name=file.filename, image_url=image_url, status="running")
+    task = TaskModel(
+        task_id=task_id,
+        customer_id=customer_id,
+        file_name=file.filename,
+        image_url=image_url,
+        status="running",
+    )
     db.add(task)
     db.commit()
 
@@ -342,6 +353,7 @@ async def upload_order(
                 db.execute(
                     select(TemplateModel)
                     .where(
+                        TemplateModel.customer_id == customer.id,
                         TemplateModel.type == item.label,
                         TemplateModel.embedding_json.is_not(None),
                     )
@@ -411,8 +423,15 @@ def get_task(task_id: str, db: Session = Depends(get_db_session)) -> UploadTaskD
     task = db.get(TaskModel, task_id)
     if task is None:
         return None
+    customer_name = None
+    if task.customer_id is not None:
+        customer = db.get(CustomerModel, task.customer_id)
+        customer_name = customer.name if customer is not None else None
+
     return UploadTaskDTO(
         task_id=task.task_id,
+        customer_id=task.customer_id,
+        customer_name=customer_name,
         file_name=task.file_name,
         image_url=task.image_url,
         status=task.status,
@@ -425,8 +444,15 @@ def get_latest_task(db: Session = Depends(get_db_session)) -> UploadTaskDTO | No
     task = db.execute(select(TaskModel).order_by(TaskModel.created_at.desc())).scalars().first()
     if task is None:
         return None
+    customer_name = None
+    if task.customer_id is not None:
+        customer = db.get(CustomerModel, task.customer_id)
+        customer_name = customer.name if customer is not None else None
+
     return UploadTaskDTO(
         task_id=task.task_id,
+        customer_id=task.customer_id,
+        customer_name=customer_name,
         file_name=task.file_name,
         image_url=task.image_url,
         status=task.status,

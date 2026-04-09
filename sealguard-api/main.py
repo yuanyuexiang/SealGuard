@@ -29,6 +29,9 @@ def startup_init() -> None:
         connection.execute(
             text("ALTER TABLE templates ADD COLUMN IF NOT EXISTS embedding_json TEXT")
         )
+        connection.execute(
+            text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS customer_id INTEGER")
+        )
 
 
 app.mount(settings.static_url_prefix, StaticFiles(directory=settings.runtime_dir), name="static")

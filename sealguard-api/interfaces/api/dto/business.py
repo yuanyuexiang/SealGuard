@@ -39,6 +39,8 @@ class UploadOrderResponse(BaseModel):
 
 class UploadTaskDTO(BaseModel):
     task_id: str
+    customer_id: int | None = None
+    customer_name: str | None = None
     file_name: str
     image_url: str
     status: str

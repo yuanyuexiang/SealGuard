@@ -32,6 +32,7 @@ class TaskModel(Base):
     __tablename__ = "tasks"
 
     task_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     image_url: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
