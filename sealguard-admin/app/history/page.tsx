@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Button, Card, Space, Table, Tag, Typography } from "antd";
+import { Button, Card, Segmented, Space, Table, Tag, Typography } from "antd";
 import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 import { getHistory } from "@/services/mockApi";
 import type { HistoryItem } from "@/types/domain";
@@ -21,11 +22,20 @@ function resultLabel(result: "true" | "false" | null) {
 
 export default function HistoryPage() {
   const router = useRouter();
+  const [resultFilter, setResultFilter] = useState<"all" | "true" | "false">("all");
 
   const historyQuery = useQuery({
     queryKey: ["history"],
     queryFn: getHistory,
   });
+
+  const filteredHistory = useMemo(() => {
+    const rows = historyQuery.data ?? [];
+    if (resultFilter === "all") {
+      return rows;
+    }
+    return rows.filter((item) => item.result === resultFilter);
+  }, [historyQuery.data, resultFilter]);
 
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
@@ -37,10 +47,21 @@ export default function HistoryPage() {
       </Card>
 
       <Card title="任务列表">
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Segmented
+            options={[
+              { label: "全部", value: "all" },
+              { label: "一致", value: "true" },
+              { label: "不一致", value: "false" },
+            ]}
+            value={resultFilter}
+            onChange={(value) => setResultFilter(value as "all" | "true" | "false")}
+          />
+
         <Table
           rowKey="id"
           loading={historyQuery.isLoading}
-          dataSource={historyQuery.data ?? []}
+          dataSource={filteredHistory}
           pagination={{ pageSize: 8 }}
           columns={[
             { title: "货单ID", dataIndex: "id" },
@@ -68,6 +89,7 @@ export default function HistoryPage() {
             },
           ]}
         />
+        </Space>
       </Card>
     </Space>
   );
