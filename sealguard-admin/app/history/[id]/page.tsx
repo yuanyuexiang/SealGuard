@@ -65,10 +65,24 @@ export default function HistoryDetailPage() {
             <div className="result-grid">
               {resultQuery.data.detections.map((item) => (
                 <Card key={item.id} size="small">
-                  <Space>
-                    <Typography.Text strong>{item.type}</Typography.Text>
-                    <ResultTag result={item.result} />
-                    <Typography.Text>score: {item.score.toFixed(2)}</Typography.Text>
+                  <Space direction="vertical" size={10} style={{ width: "100%" }}>
+                    <Space>
+                      <Typography.Text strong>{item.type}</Typography.Text>
+                      <ResultTag result={item.result} />
+                      <Typography.Text>score: {item.score.toFixed(2)}</Typography.Text>
+                    </Space>
+                    <Typography.Text type="secondary">命中比对模板</Typography.Text>
+                    {item.matched_template_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.matched_template_url}
+                        alt="matched-template"
+                        className="review-template-image"
+                        style={{ maxWidth: 260 }}
+                      />
+                    ) : (
+                      <Typography.Text type="secondary">未命中模板（当前分值来自检测置信度）</Typography.Text>
+                    )}
                   </Space>
                 </Card>
               ))}
