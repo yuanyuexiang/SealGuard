@@ -4,10 +4,25 @@ from pydantic import BaseModel
 class CustomerDTO(BaseModel):
     id: int
     name: str
+    template_total: int = 0
+    signature_templates: int = 0
+    stamp_templates: int = 0
 
 
 class CustomerCreateRequest(BaseModel):
     name: str
+
+
+class CustomerUpdateRequest(BaseModel):
+    name: str
+
+
+class CustomerStatsDTO(BaseModel):
+    customer_id: int
+    customer_name: str
+    template_total: int
+    signature_templates: int
+    stamp_templates: int
 
 
 class TemplateDTO(BaseModel):

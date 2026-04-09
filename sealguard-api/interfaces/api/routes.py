@@ -17,6 +17,8 @@ from infrastructure.storage.local_storage import LocalStorage
 from interfaces.api.dto.business import (
     CustomerCreateRequest,
     CustomerDTO,
+    CustomerStatsDTO,
+    CustomerUpdateRequest,
     DetectionDTO,
     HistoryItemDTO,
     ReviewRecordDTO,
@@ -101,19 +103,135 @@ def _to_detection_dto(row: DetectionModel) -> DetectionDTO:
     )
 
 
+def _find_customer_by_name(db: Session, name: str, exclude_id: int | None = None) -> CustomerModel | None:
+    stmt = select(CustomerModel).where(func.lower(CustomerModel.name) == name.lower())
+    if exclude_id is not None:
+        stmt = stmt.where(CustomerModel.id != exclude_id)
+    return db.execute(stmt).scalars().first()
+
+
+def _build_customer_stats(db: Session, customer_id: int) -> CustomerStatsDTO:
+    customer = db.get(CustomerModel, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
+    template_rows = (
+        db.execute(
+            select(TemplateModel.type, func.count(TemplateModel.id))
+            .where(TemplateModel.customer_id == customer_id)
+            .group_by(TemplateModel.type)
+        )
+        .all()
+    )
+
+    signature_templates = 0
+    stamp_templates = 0
+    for row_type, row_count in template_rows:
+        if row_type == "signature":
+            signature_templates = int(row_count)
+        elif row_type == "stamp":
+            stamp_templates = int(row_count)
+
+    return CustomerStatsDTO(
+        customer_id=customer.id,
+        customer_name=customer.name,
+        template_total=signature_templates + stamp_templates,
+        signature_templates=signature_templates,
+        stamp_templates=stamp_templates,
+    )
+
+
 @router.get("/customers", response_model=list[CustomerDTO])
 def get_customers(db: Session = Depends(get_db_session)) -> list[CustomerDTO]:
     rows = db.execute(select(CustomerModel).order_by(CustomerModel.id.desc())).scalars().all()
-    return [CustomerDTO(id=row.id, name=row.name) for row in rows]
+
+    count_rows = (
+        db.execute(
+            select(TemplateModel.customer_id, TemplateModel.type, func.count(TemplateModel.id))
+            .group_by(TemplateModel.customer_id, TemplateModel.type)
+        )
+        .all()
+    )
+    count_map: dict[int, dict[str, int]] = {}
+    for customer_id, template_type, template_count in count_rows:
+        key = int(customer_id)
+        if key not in count_map:
+            count_map[key] = {"signature": 0, "stamp": 0}
+        if template_type in {"signature", "stamp"}:
+            count_map[key][template_type] = int(template_count)
+
+    result: list[CustomerDTO] = []
+    for row in rows:
+        signature_templates = count_map.get(row.id, {}).get("signature", 0)
+        stamp_templates = count_map.get(row.id, {}).get("stamp", 0)
+        result.append(
+            CustomerDTO(
+                id=row.id,
+                name=row.name,
+                template_total=signature_templates + stamp_templates,
+                signature_templates=signature_templates,
+                stamp_templates=stamp_templates,
+            )
+        )
+
+    return result
 
 
 @router.post("/customers", response_model=CustomerDTO)
 def create_customer(payload: CustomerCreateRequest, db: Session = Depends(get_db_session)) -> CustomerDTO:
-    row = CustomerModel(name=payload.name.strip())
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Customer name cannot be empty.")
+
+    duplicate = _find_customer_by_name(db, name)
+    if duplicate is not None:
+        raise HTTPException(status_code=409, detail="Customer name already exists.")
+
+    row = CustomerModel(name=name)
     db.add(row)
     db.commit()
     db.refresh(row)
     return CustomerDTO(id=row.id, name=row.name)
+
+
+@router.put("/customers/{customer_id}", response_model=CustomerDTO)
+def update_customer(
+    customer_id: int,
+    payload: CustomerUpdateRequest,
+    db: Session = Depends(get_db_session),
+) -> CustomerDTO:
+    row = db.get(CustomerModel, customer_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Customer name cannot be empty.")
+
+    duplicate = _find_customer_by_name(db, name, exclude_id=customer_id)
+    if duplicate is not None:
+        raise HTTPException(status_code=409, detail="Customer name already exists.")
+
+    row.name = name
+    db.commit()
+    db.refresh(row)
+    return CustomerDTO(id=row.id, name=row.name)
+
+
+@router.delete("/customers/{customer_id}")
+def delete_customer(customer_id: int, db: Session = Depends(get_db_session)) -> dict[str, str]:
+    row = db.get(CustomerModel, customer_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+
+    db.delete(row)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.get("/customers/{customer_id}/stats", response_model=CustomerStatsDTO)
+def get_customer_stats(customer_id: int, db: Session = Depends(get_db_session)) -> CustomerStatsDTO:
+    return _build_customer_stats(db, customer_id)
 
 
 @router.get("/templates", response_model=list[TemplateDTO])

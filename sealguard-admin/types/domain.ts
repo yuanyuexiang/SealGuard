@@ -5,6 +5,17 @@ export type DetectionType = "signature" | "stamp";
 export type Customer = {
   id: number;
   name: string;
+  template_total?: number;
+  signature_templates?: number;
+  stamp_templates?: number;
+};
+
+export type CustomerStats = {
+  customer_id: number;
+  customer_name: string;
+  template_total: number;
+  signature_templates: number;
+  stamp_templates: number;
 };
 
 export type Template = {
@@ -43,4 +54,19 @@ export type ReviewRecord = {
   detect_id: number;
   result: ReviewResult;
   created_at: string;
+};
+
+export type DetectItem = {
+  id: number;
+  type: string;
+  confidence: number;
+  bbox: [number, number, number, number];
+};
+
+export type DetectResponse = {
+  file_name: string;
+  image_width: number;
+  image_height: number;
+  model_name: string;
+  detections: DetectItem[];
 };

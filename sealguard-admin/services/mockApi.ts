@@ -1,5 +1,7 @@
 import type {
   Customer,
+  CustomerStats,
+  DetectResponse,
   ReviewRecord,
   ReviewResult,
   TaskResult,
@@ -60,6 +62,23 @@ export async function createCustomer(name: string): Promise<Customer> {
   });
 }
 
+export async function updateCustomer(customerIdValue: number, name: string): Promise<Customer> {
+  return request<Customer>(`/api/customers/${customerIdValue}`, {
+    method: "PUT",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteCustomer(customerIdValue: number): Promise<void> {
+  await request<{ status: string }>(`/api/customers/${customerIdValue}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getCustomerStats(customerIdValue: number): Promise<CustomerStats> {
+  return request<CustomerStats>(`/api/customers/${customerIdValue}/stats`);
+}
+
 export async function getTemplates(customerIdValue: number): Promise<Template[]> {
   const data = await request<Template[]>(`/api/templates?customer_id=${customerIdValue}`);
   return data.map((item) => ({
@@ -117,6 +136,23 @@ export async function uploadOrder(file: Blob, fileName: string): Promise<{ task_
   }
 
   return (await response.json()) as { task_id: string };
+}
+
+export async function detectImage(file: Blob, fileName: string): Promise<DetectResponse> {
+  const formData = new FormData();
+  formData.append("file", file, fileName);
+
+  const response = await fetch(`${API_BASE}/api/detect`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorPayload = (await response.json().catch(() => ({}))) as ApiErrorPayload;
+    throw new Error(errorPayload.detail ?? `Detect image failed: ${response.status}`);
+  }
+
+  return (await response.json()) as DetectResponse;
 }
 
 export async function getResult(taskId: string): Promise<TaskResult> {
