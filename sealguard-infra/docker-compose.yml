@@ -21,9 +21,8 @@ services:
 
   sealguard-api:
     container_name: sealguard-api
-    image: yuanyuexiang/sealguard-api:v3
+    image: yuanyuexiang/sealguard-api:v4
     restart: always
-    user: "1000:1000"
     ports:
       - "8000"
     environment:
