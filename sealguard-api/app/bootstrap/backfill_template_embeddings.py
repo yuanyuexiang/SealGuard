@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from bootstrap.dependencies import get_vector_matcher
-from bootstrap.seed_demo_data import seed
-from infrastructure.db.models import TemplateModel
-from infrastructure.db.session import SessionLocal
-from interfaces.api.routes import _read_template_bytes
+from app.bootstrap.dependencies import get_vector_matcher
+from app.bootstrap.seed_demo_data import seed
+from app.infrastructure.db.models import TemplateModel
+from app.infrastructure.db.session import SessionLocal
+from app.interfaces.api.routes import _read_template_bytes
 
 
 def run() -> None:

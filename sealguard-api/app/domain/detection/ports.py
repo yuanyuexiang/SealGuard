@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from domain.detection.entities import DetectionResult
+from app.domain.detection.entities import DetectionResult
 
 
 class DetectionEnginePort(Protocol):

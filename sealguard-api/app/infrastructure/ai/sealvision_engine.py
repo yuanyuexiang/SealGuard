@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from domain.detection.entities import Detection, DetectionResult
+from app.domain.detection.entities import Detection, DetectionResult
 
 # Prevent ultralytics from auto-installing dependencies at runtime.
 os.environ.setdefault("YOLO_AUTOINSTALL", "false")

@@ -8,13 +8,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from bootstrap.config import get_settings
-from bootstrap.dependencies import get_db_session, get_detect_use_case, get_local_storage, get_vector_matcher
-from domain.detection.entities import DetectionResult
-from infrastructure.ai.siamese_vector_matcher import SiameseVectorMatcher
-from infrastructure.db.models import CustomerModel, DetectionModel, ReviewModel, TaskModel, TemplateModel
-from infrastructure.storage.local_storage import LocalStorage
-from interfaces.api.dto.business import (
+from app.bootstrap.config import get_settings
+from app.bootstrap.dependencies import get_db_session, get_detect_use_case, get_local_storage, get_vector_matcher
+from app.domain.detection.entities import DetectionResult
+from app.infrastructure.ai.siamese_vector_matcher import SiameseVectorMatcher
+from app.infrastructure.db.models import CustomerModel, DetectionModel, ReviewModel, TaskModel, TemplateModel
+from app.infrastructure.storage.local_storage import LocalStorage
+from app.interfaces.api.dto.business import (
     CustomerCreateRequest,
     CustomerDTO,
     CustomerStatsDTO,
@@ -29,7 +29,7 @@ from interfaces.api.dto.business import (
     UploadOrderResponse,
     UploadTaskDTO,
 )
-from interfaces.api.dto.detect import DetectResponseDTO, DetectionItemDTO
+from app.interfaces.api.dto.detect import DetectResponseDTO, DetectionItemDTO
 
 router = APIRouter(prefix="/api", tags=["api"])
 

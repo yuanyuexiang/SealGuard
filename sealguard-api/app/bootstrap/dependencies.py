@@ -4,12 +4,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Generator
 
-from application.detection.use_cases import DetectDeliveryNoteUseCase
-from bootstrap.config import get_settings
-from infrastructure.ai.sealvision_engine import SealVisionEngine
-from infrastructure.ai.siamese_vector_matcher import SiameseVectorMatcher
-from infrastructure.db.session import SessionLocal
-from infrastructure.storage.local_storage import LocalStorage
+from app.application.detection.use_cases import DetectDeliveryNoteUseCase
+from app.bootstrap.config import get_settings
+from app.infrastructure.ai.sealvision_engine import SealVisionEngine
+from app.infrastructure.ai.siamese_vector_matcher import SiameseVectorMatcher
+from app.infrastructure.db.session import SessionLocal
+from app.infrastructure.storage.local_storage import LocalStorage
 
 
 @lru_cache(maxsize=1)

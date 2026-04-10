@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from domain.detection.entities import DetectionResult
-from domain.detection.ports import DetectionEnginePort
+from app.domain.detection.entities import DetectionResult
+from app.domain.detection.ports import DetectionEnginePort
 
 
 @dataclass

@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from bootstrap.config import get_settings
+from app.bootstrap.config import get_settings
 
 settings = get_settings()
 

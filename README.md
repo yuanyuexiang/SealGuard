@@ -7,7 +7,7 @@ SealGuard 是一套面向物流/供应链场景的送货单签字与印章核验
 已完成：
 
 - 前端管理端（客户模板、上传检测、人工审核、历史记录）
-- 后端 DDD 分层架构（无 `app` 目录）
+- 后端 DDD 分层架构（采用 `app` 目录）
 - YOLO 检测链路
 - 本地文件存储（无 MinIO）
 - 模板 embedding 存储与向量相似度匹配（Siamese 风格适配器）
@@ -37,12 +37,14 @@ SealGuard/
 │  ├─ services/
 │  └─ ...
 ├─ sealguard-api/
-│  ├─ main.py
-│  ├─ interfaces/
-│  ├─ application/
-│  ├─ domain/
-│  ├─ infrastructure/
-│  ├─ bootstrap/
+│  ├─ app/
+│  │  ├─ main.py
+│  │  ├─ interfaces/
+│  │  ├─ application/
+│  │  ├─ domain/
+│  │  ├─ infrastructure/
+│  │  ├─ bootstrap/
+│  │  └─ shared/
 │  ├─ artifacts/sealvision/
 │  ├─ pyproject.toml
 │  └─ uv.lock
@@ -57,7 +59,7 @@ SealGuard/
 ```bash
 cd sealguard-api
 uv sync --python 3.12
-uv run uvicorn main:app --host 127.0.0.1 --port 8001 --reload
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
 ### 2. 启动前端
@@ -101,7 +103,7 @@ npm run dev -- --port 3002
 
 ```bash
 cd sealguard-api
-uv run python -m bootstrap.backfill_template_embeddings
+uv run python -m app.bootstrap.backfill_template_embeddings
 ```
 
 ## 八、License

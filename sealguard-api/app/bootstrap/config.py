@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ def get_settings() -> Settings:
 
     default_db_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
 
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     default_bundle_dir = project_root / "artifacts" / "sealvision"
     default_siamese_weights = project_root / "artifacts" / "siamese" / "model" / "siamese_best.pth"
     default_runtime_dir = project_root / "runtime"

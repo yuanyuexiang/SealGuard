@@ -10,26 +10,27 @@ Backend API service for SealGuard.
 ## Run (uvicorn)
 ```bash
 uv sync --python 3.12
-uv run uvicorn main:app --reload
+uv run uvicorn app.main:app --reload
 ```
 
 Production example:
 
 ```bash
-uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 ```
 
-## DDD structure (no app directory)
+## DDD structure (with app directory)
 
 ```text
 sealguard-api/
-├─ main.py
-├─ interfaces/      # FastAPI controllers and DTO
-├─ application/     # Use cases (workflow orchestration)
-├─ domain/          # Entities, value objects, ports
-├─ infrastructure/  # DB/AI adapters and external implementations
-├─ bootstrap/       # Config and dependency wiring
-├─ shared/          # Shared utilities
+├─ app/
+│  ├─ main.py
+│  ├─ interfaces/      # FastAPI controllers and DTO
+│  ├─ application/     # Use cases (workflow orchestration)
+│  ├─ domain/          # Entities, value objects, ports
+│  ├─ infrastructure/  # DB/AI adapters and external implementations
+│  ├─ bootstrap/       # Config and dependency wiring
+│  └─ shared/          # Shared utilities
 ├─ .env
 ├─ artifacts/       # bundled model artifacts for detection
 ├─ pyproject.toml
@@ -48,8 +49,8 @@ DATABASE_URL=postgresql+psycopg2://postgres:123456@localhost:5432/sealguard
 
 Modules:
 
-- `bootstrap/config.py`: load and build database settings
-- `infrastructure/db/session.py`: create SQLAlchemy engine and SessionLocal
+- `app/bootstrap/config.py`: load and build database settings
+- `app/infrastructure/db/session.py`: create SQLAlchemy engine and SessionLocal
 
 ## File storage (no MinIO)
 
@@ -161,5 +162,5 @@ curl -X POST "http://127.0.0.1:8001/api/templates/rebuild-embeddings"
 Offline script:
 
 ```bash
-uv run python -m bootstrap.backfill_template_embeddings
+uv run python -m app.bootstrap.backfill_template_embeddings
 ```

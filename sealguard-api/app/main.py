@@ -5,10 +5,10 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from bootstrap.config import get_settings
-from infrastructure.db.models import Base
-from infrastructure.db.session import engine
-from interfaces.api.routes import router as api_router
+from app.bootstrap.config import get_settings
+from app.infrastructure.db.models import Base
+from app.infrastructure.db.session import engine
+from app.interfaces.api.routes import router as api_router
 
 app = FastAPI(title="SealGuard API", version="0.1.0")
 app.include_router(api_router)

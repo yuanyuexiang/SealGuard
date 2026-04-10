@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from infrastructure.db.models import CustomerModel, DetectionModel, ReviewModel, TaskModel, TemplateModel
-from infrastructure.db.session import SessionLocal
+from app.infrastructure.db.models import CustomerModel, DetectionModel, ReviewModel, TaskModel, TemplateModel
+from app.infrastructure.db.session import SessionLocal
 
 
 def ensure_customer(session, name: str) -> CustomerModel:
