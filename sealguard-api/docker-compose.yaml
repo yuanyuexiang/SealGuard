@@ -1,24 +1,4 @@
-version: "3.9"
-
 services:
-  sealguard-admin:
-    container_name: sealguard-admin
-    image: yuanyuexiang/sealguard-admin:v1
-    restart: always
-    healthcheck:
-      disable: true
-    ports:
-      - "3000:3000"
-    networks:
-      - matrix-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.sealguard-admin.rule=Host(`sealguard.matrix-net.tech`)"
-      - "traefik.http.routers.sealguard-admin.entrypoints=websecure"
-      - "traefik.http.routers.sealguard-admin.service=sealguard-admin"
-      - "traefik.http.routers.sealguard-admin.tls.certresolver=aliyunresolver"
-      - "traefik.http.services.sealguard-admin.loadbalancer.server.port=3000"
-
   sealguard-api:
     container_name: sealguard-api
     image: yuanyuexiang/sealguard-api:v1

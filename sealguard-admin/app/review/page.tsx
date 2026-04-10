@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Empty, Segmented, Space, Typography, message } from "antd";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 
 import DetectionCanvas from "@/components/DetectionCanvas";
 import ResultTag from "@/components/ResultTag";
@@ -16,6 +16,14 @@ import {
 import type { ReviewResult } from "@/types/domain";
 
 export default function ReviewPage() {
+  return (
+    <Suspense fallback={<Card loading />}>
+      <ReviewPageContent />
+    </Suspense>
+  );
+}
+
+function ReviewPageContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const defaultTaskId = searchParams.get("taskId");
