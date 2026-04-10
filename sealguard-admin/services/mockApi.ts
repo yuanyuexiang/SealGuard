@@ -11,7 +11,9 @@ import type {
   UploadTask,
 } from "@/types/domain";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/backend";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  (process.env.NODE_ENV === "development" ? "/backend" : "");
 
 type ApiErrorPayload = {
   detail?: string;

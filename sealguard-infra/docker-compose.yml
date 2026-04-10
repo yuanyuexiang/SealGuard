@@ -3,12 +3,12 @@ version: "3.9"
 services:
   sealguard-admin:
     container_name: sealguard-admin
-    image: yuanyuexiang/sealguard-admin:v1
+    image: yuanyuexiang/sealguard-admin:v2
     restart: always
     healthcheck:
       disable: true
     ports:
-      - "3000:3000"
+      - "3000"
     networks:
       - matrix-network
     labels:
@@ -21,19 +21,20 @@ services:
 
   sealguard-api:
     container_name: sealguard-api
-    image: yuanyuexiang/sealguard-api:v1
+    image: yuanyuexiang/sealguard-api:v3
     restart: always
+    user: "1000:1000"
     ports:
       - "8000"
     environment:
       - DATABASE_URL=postgresql+psycopg2://postgres:123456@postgres:5432/sealguard
     volumes:
-      - ./data/sealguard-api:/app/runtime
+      - ./data/sealguard-api/runtime:/app/runtime
     networks:
       - matrix-network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.sealguard-api.rule=Host(`sealguard.matrix-net.tech`) && (PathPrefix(`/api`) || PathPrefix(`/health`))" # 替换为你的域名
+      - "traefik.http.routers.sealguard-api.rule=Host(`sealguard.matrix-net.tech`) && (PathPrefix(`/api`) || PathPrefix(`/health`) || PathPrefix(`/static`))" # 替换为你的域名
       - "traefik.http.routers.sealguard-api.entrypoints=websecure"
       - "traefik.http.routers.sealguard-api.service=sealguard-api"
       - "traefik.http.routers.sealguard-api.tls=true"

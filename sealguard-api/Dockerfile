@@ -7,7 +7,9 @@ WORKDIR /app
 
 # Install dependencies first (cached layer)
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv venv /app/.venv \
+    && uv export --frozen --no-dev --format requirements-txt -o /tmp/requirements.txt \
+    && uv pip install --python /app/.venv/bin/python -r /tmp/requirements.txt
 
 # Copy source
 COPY . .
@@ -18,6 +20,11 @@ COPY . .
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
 
 WORKDIR /app
+
+# OpenCV runtime libs (fix: ImportError libGL.so.1)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user first
 RUN groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app
