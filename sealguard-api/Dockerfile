@@ -19,12 +19,16 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
 
 WORKDIR /app
 
-# Copy virtual environment and source from builder
-COPY --from=builder /app /app
+# Create non-root user first
+RUN groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app
 
-# Create non-root user
-RUN groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app \
-    && chown -R app:app /app
+# Copy only runtime files and set ownership at copy-time (avoid chown duplicate layer)
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --from=builder --chown=app:app /app/app /app/app
+COPY --from=builder --chown=app:app /app/artifacts /app/artifacts
+
+# Ensure runtime upload root exists and is writable
+RUN mkdir -p /app/runtime/uploads/orders /app/runtime/uploads/templates && chown -R app:app /app/runtime
 
 # Drop privileges
 USER app
