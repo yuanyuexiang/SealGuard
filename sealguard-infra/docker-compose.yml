@@ -26,7 +26,7 @@ services:
     ports:
       - "8000"
     environment:
-      - DATABASE_URL=postgresql+psycopg2://postgres:123456@postgres:5432/sealguard
+      - DATABASE_URL=postgresql+psycopg2://postgres:squirrel_canon_20260101@postgres:5432/sealguard
     volumes:
       - ./data/sealguard-api/runtime:/app/runtime
     networks:
