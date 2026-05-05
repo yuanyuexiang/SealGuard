@@ -8,6 +8,7 @@ from app.application.detection.use_cases import DetectDeliveryNoteUseCase
 from app.bootstrap.config import get_settings
 from app.infrastructure.ai.sealvision_engine import SealVisionEngine
 from app.infrastructure.ai.siamese_vector_matcher import SiameseVectorMatcher
+from app.infrastructure.ai.stamp_ocr import StampOcrMatcher
 from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.storage.local_storage import LocalStorage
 
@@ -52,4 +53,18 @@ def get_vector_matcher() -> SiameseVectorMatcher:
         device=settings.siamese_device,
         strict_loading=settings.siamese_strict_loading,
         allow_lightweight_fallback=settings.siamese_allow_lightweight_fallback,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_stamp_ocr() -> StampOcrMatcher:
+    """Stamp OCR shortcut. Reports `is_available=False` if no OCR backend is
+    installed, in which case the route layer falls back to embedding-only
+    matching — keeping deployments without paddleocr/rapidocr/easyocr fully
+    functional."""
+    settings = get_settings()
+    return StampOcrMatcher(
+        enabled=settings.stamp_ocr_enabled,
+        match_threshold=settings.stamp_ocr_match_threshold,
+        min_company_length=settings.stamp_ocr_min_company_length,
     )

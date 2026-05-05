@@ -1,0 +1,8 @@
+torch>=2.0
+torchvision>=0.15
+sqlalchemy>=2.0,<3
+psycopg2-binary>=2.9
+pillow>=10.0
+# Only needed by export_dinov2.py
+onnx>=1.14
+onnxruntime>=1.17

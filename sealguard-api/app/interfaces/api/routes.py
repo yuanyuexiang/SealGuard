@@ -9,9 +9,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.bootstrap.config import get_settings
-from app.bootstrap.dependencies import get_db_session, get_detect_use_case, get_local_storage, get_vector_matcher
-from app.domain.detection.entities import DetectionResult
-from app.infrastructure.ai.siamese_vector_matcher import SiameseVectorMatcher
+from app.bootstrap.dependencies import (
+    get_db_session,
+    get_detect_use_case,
+    get_local_storage,
+    get_stamp_ocr,
+    get_vector_matcher,
+)
+from app.domain.detection.entities import Detection, DetectionResult
+from app.infrastructure.ai.siamese_vector_matcher import PrototypePayload, SiameseVectorMatcher
+from app.infrastructure.ai.stamp_ocr import StampOcrMatcher
 from app.infrastructure.db.models import CustomerModel, DetectionModel, ReviewModel, TaskModel, TemplateModel
 from app.infrastructure.storage.local_storage import LocalStorage
 from app.interfaces.api.dto.business import (
@@ -45,12 +52,137 @@ def _to_iso(dt: datetime | None) -> str:
     return dt.isoformat()
 
 
-def _score_to_result(score: float) -> str:
-    if score >= 0.85:
+def _score_to_result(score: float, *, high: float = 0.85, low: float = 0.6) -> str:
+    if score >= high:
         return "true"
-    if score >= 0.6:
+    if score >= low:
         return "suspicious"
     return "false"
+
+
+def _load_prototype_or_legacy(
+    template: TemplateModel,
+    matcher: SiameseVectorMatcher,
+) -> PrototypePayload | None:
+    """Load the new prototype payload, transparently upgrading legacy rows.
+
+    Legacy rows only have a single `embedding_json` (pre-prototype era);
+    we wrap that as a degenerate prototype so matching still works.
+    """
+    if template.prototype_json:
+        try:
+            data = json.loads(template.prototype_json)
+        except json.JSONDecodeError:
+            data = None
+        if data:
+            payload = PrototypePayload.from_dict(data)
+            if payload is not None:
+                return payload
+
+    if template.embedding_json:
+        try:
+            embedding = json.loads(template.embedding_json)
+        except json.JSONDecodeError:
+            return None
+        if not embedding:
+            return None
+        return matcher.build_prototype([embedding])
+
+    return None
+
+
+def _build_template_payload(
+    matcher: SiameseVectorMatcher,
+    image_bytes: bytes,
+) -> PrototypePayload | None:
+    """Encode K augmented variants of one template image and build its prototype."""
+    variants = matcher.encode_image_variants(image_bytes)
+    if not variants:
+        return None
+    return matcher.build_prototype(variants)
+
+
+def _match_detection(
+    *,
+    item: Detection,
+    image_bytes: bytes,
+    customer: CustomerModel,
+    db: Session,
+    matcher: SiameseVectorMatcher,
+    ocr: StampOcrMatcher,
+) -> tuple[float, str, TemplateModel | None]:
+    """Resolve a single detection against the customer's templates.
+
+    Order of operations (cheap → expensive):
+      1. Stamp OCR shortcut: read the perimeter text and match against the
+         customer's registered name. Bypasses similarity entirely on success.
+      2. Prototype matching: max-over-K cosine against each template's
+         augmented embeddings, with adaptive thresholds derived from intra-
+         template encoder stability.
+      3. Fallback: when no template exists for this (customer, type), keep
+         the detector's confidence as the score so the row is still useful.
+    """
+    # 1) Stamp OCR shortcut.
+    if item.label == "stamp" and ocr.is_available:
+        ocr_result = ocr.verify_stamp(
+            image_bytes=image_bytes, bbox=item.bbox, customer_name=customer.name
+        )
+        if ocr_result.matched:
+            ref_template = (
+                db.execute(
+                    select(TemplateModel)
+                    .where(
+                        TemplateModel.customer_id == customer.id,
+                        TemplateModel.type == "stamp",
+                    )
+                    .order_by(TemplateModel.created_at.desc())
+                )
+                .scalars()
+                .first()
+            )
+            return round(ocr_result.score, 4), "true", ref_template
+
+    # 2) Prototype matching against same-type templates.
+    templates = (
+        db.execute(
+            select(TemplateModel)
+            .where(
+                TemplateModel.customer_id == customer.id,
+                TemplateModel.type == item.label,
+            )
+            .order_by(TemplateModel.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+    if templates:
+        query_embedding = matcher.encode_crop(image_bytes=image_bytes, bbox=item.bbox)
+
+        best_score = 0.0
+        best_template: TemplateModel | None = None
+        best_payload: PrototypePayload | None = None
+
+        for template in templates:
+            payload = _load_prototype_or_legacy(template, matcher)
+            if payload is None:
+                continue
+            score = matcher.score_against_prototype(query_embedding, payload)
+            if score > best_score:
+                best_score = score
+                best_template = template
+                best_payload = payload
+
+        if best_template is not None:
+            high, low = matcher.adaptive_thresholds(best_payload)
+            return (
+                round(best_score, 4),
+                _score_to_result(best_score, high=high, low=low),
+                best_template,
+            )
+
+    # 3) No usable template → fall back to detector confidence as the score.
+    return round(item.confidence, 4), _score_to_result(item.confidence), None
 
 
 def _read_template_bytes(image_url: str) -> bytes:
@@ -301,14 +433,20 @@ async def upload_template(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Uploaded template is empty.")
 
-    embedding = matcher.encode_image(image_bytes)
+    payload = _build_template_payload(matcher, image_bytes)
+    if payload is None:
+        raise HTTPException(status_code=400, detail="Failed to encode template image.")
+
     _, image_url = storage.save_image(image_bytes=image_bytes, original_name=file.filename or "template.jpg", category="templates")
 
     row = TemplateModel(
         customer_id=customer_id,
         type=type,
         image_url=image_url,
-        embedding_json=json.dumps(embedding, ensure_ascii=True),
+        # Keep `embedding_json` populated for backward compatibility with any
+        # external reader; new query path uses `prototype_json`.
+        embedding_json=json.dumps(payload.prototype, ensure_ascii=True),
+        prototype_json=json.dumps(payload.to_dict(), ensure_ascii=True),
     )
     db.add(row)
     db.commit()
@@ -340,6 +478,7 @@ async def upload_order(
     db: Session = Depends(get_db_session),
     storage: LocalStorage = Depends(get_local_storage),
     matcher: SiameseVectorMatcher = Depends(get_vector_matcher),
+    ocr: StampOcrMatcher = Depends(get_stamp_ocr),
 ) -> UploadOrderResponse:
     customer = db.get(CustomerModel, customer_id)
     if customer is None:
@@ -371,40 +510,14 @@ async def upload_order(
         detect_result = use_case.execute(file_name=file.filename, image_bytes=image_bytes)
 
         for item in detect_result.detections:
-            best_template: TemplateModel | None = None
-            best_score = 0.0
-
-            query_templates = (
-                db.execute(
-                    select(TemplateModel)
-                    .where(
-                        TemplateModel.customer_id == customer.id,
-                        TemplateModel.type == item.label,
-                        TemplateModel.embedding_json.is_not(None),
-                    )
-                    .order_by(TemplateModel.created_at.desc())
-                )
-                .scalars()
-                .all()
+            score, result, matched_template = _match_detection(
+                item=item,
+                image_bytes=image_bytes,
+                customer=customer,
+                db=db,
+                matcher=matcher,
+                ocr=ocr,
             )
-
-            if query_templates:
-                detection_embedding = matcher.encode_crop(image_bytes=image_bytes, bbox=item.bbox)
-                for template in query_templates:
-                    try:
-                        template_embedding = json.loads(template.embedding_json or "[]")
-                    except json.JSONDecodeError:
-                        continue
-
-                    if not template_embedding:
-                        continue
-
-                    score = matcher.cosine_similarity(detection_embedding, template_embedding)
-                    if score > best_score:
-                        best_score = score
-                        best_template = template
-
-            final_score = round(best_score if best_template else item.confidence, 4)
 
             row = DetectionModel(
                 task_id=task_id,
@@ -413,9 +526,9 @@ async def upload_order(
                 y=item.bbox[1],
                 w=item.bbox[2],
                 h=item.bbox[3],
-                score=final_score,
-                result=_score_to_result(final_score),
-                matched_template_url=best_template.image_url if best_template else "",
+                score=score,
+                result=result,
+                matched_template_url=matched_template.image_url if matched_template else "",
             )
             db.add(row)
 
@@ -581,9 +694,16 @@ def get_pending_reviews(db: Session = Depends(get_db_session)) -> list[PendingRe
 
 @router.post("/templates/rebuild-embeddings")
 def rebuild_template_embeddings(
+    force: bool = Query(default=False),
     db: Session = Depends(get_db_session),
     matcher: SiameseVectorMatcher = Depends(get_vector_matcher),
 ) -> dict[str, int]:
+    """Backfill / rebuild prototype payloads for every template.
+
+    By default, rows that already have a `prototype_json` are skipped. Pass
+    `?force=true` to re-encode everything (e.g. after swapping the Siamese
+    weights or changing the augmentation pipeline).
+    """
     templates = db.execute(select(TemplateModel).order_by(TemplateModel.id.asc())).scalars().all()
 
     total = len(templates)
@@ -591,14 +711,18 @@ def rebuild_template_embeddings(
     skipped = 0
 
     for template in templates:
-        if template.embedding_json:
+        if template.prototype_json and not force:
             skipped += 1
             continue
 
         try:
             image_bytes = _read_template_bytes(template.image_url)
-            embedding = matcher.encode_image(image_bytes)
-            template.embedding_json = json.dumps(embedding, ensure_ascii=True)
+            payload = _build_template_payload(matcher, image_bytes)
+            if payload is None:
+                skipped += 1
+                continue
+            template.prototype_json = json.dumps(payload.to_dict(), ensure_ascii=True)
+            template.embedding_json = json.dumps(payload.prototype, ensure_ascii=True)
             updated += 1
         except Exception:
             skipped += 1

@@ -28,6 +28,9 @@ class Settings:
     siamese_device: str
     siamese_strict_loading: bool
     siamese_allow_lightweight_fallback: bool
+    stamp_ocr_enabled: bool
+    stamp_ocr_match_threshold: float
+    stamp_ocr_min_company_length: int
     runtime_dir: str
     static_url_prefix: str
 
@@ -65,6 +68,9 @@ def get_settings() -> Settings:
         siamese_strict_loading=os.getenv("SIAMESE_STRICT_LOADING", "true").lower() == "true",
         siamese_allow_lightweight_fallback=os.getenv("SIAMESE_ALLOW_LIGHTWEIGHT_FALLBACK", "true").lower()
         == "true",
+        stamp_ocr_enabled=os.getenv("STAMP_OCR_ENABLED", "true").lower() == "true",
+        stamp_ocr_match_threshold=float(os.getenv("STAMP_OCR_MATCH_THRESHOLD", "0.5")),
+        stamp_ocr_min_company_length=int(os.getenv("STAMP_OCR_MIN_COMPANY_LENGTH", "2")),
         runtime_dir=os.getenv("RUNTIME_DIR", str(default_runtime_dir)),
         static_url_prefix=os.getenv("STATIC_URL_PREFIX", "/static"),
     )
